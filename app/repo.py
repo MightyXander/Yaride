@@ -38,37 +38,57 @@ class UserRepository(_BaseRepository):
         role: str,
         driver_license_number: str | None = None,
         driver_license_valid_until: str | None = None,
+        didit_session_id: str | None = None,
+        didit_verification_status: str | None = None,
     ) -> None:
         normalized_license = (driver_license_number or "").strip() or None
         normalized_license_valid_until = (driver_license_valid_until or "").strip() or None
+        normalized_didit_session_id = (didit_session_id or "").strip() or None
+        normalized_didit_status = (didit_verification_status or "").strip() or None
         if role == "driver":
-            if not normalized_license or not normalized_license_valid_until:
-                raise ValueError("Для роли водителя укажи номер прав и срок их действия.")
-            try:
-                expiry_date = datetime.strptime(normalized_license_valid_until, "%Y-%m-%d").date()
-            except ValueError as exc:
-                raise ValueError("Некорректная дата действия прав. Используй формат ГГГГ-ММ-ДД.") from exc
-            if expiry_date < date.today():
-                raise ValueError("Срок действия прав уже истёк. Укажи валидные права.")
+            if normalized_didit_status != "Approved":
+                raise ValueError("Для роли водителя требуется подтверждённый KYC в Didit.")
         with self.db.transaction() as conn:
             row = conn.execute("SELECT id FROM users WHERE tg_user_id = ?", (tg_user_id,)).fetchone()
             if row:
                 conn.execute(
                     """
                     UPDATE users
-                    SET name = ?, username = ?, role = ?, driver_license_number = ?, driver_license_valid_until = ?
+                    SET name = ?, username = ?, role = ?, driver_license_number = ?, driver_license_valid_until = ?,
+                        didit_session_id = ?, didit_verification_status = ?
                     WHERE tg_user_id = ?
                     """,
-                    (name, username, role, normalized_license, normalized_license_valid_until, tg_user_id),
+                    (
+                        name,
+                        username,
+                        role,
+                        normalized_license,
+                        normalized_license_valid_until,
+                        normalized_didit_session_id,
+                        normalized_didit_status,
+                        tg_user_id,
+                    ),
                 )
                 return
 
             conn.execute(
                 """
-                INSERT INTO users(tg_user_id, name, username, role, driver_license_number, driver_license_valid_until)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO users(
+                    tg_user_id, name, username, role, driver_license_number, driver_license_valid_until,
+                    didit_session_id, didit_verification_status
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (tg_user_id, name, username, role, normalized_license, normalized_license_valid_until),
+                (
+                    tg_user_id,
+                    name,
+                    username,
+                    role,
+                    normalized_license,
+                    normalized_license_valid_until,
+                    normalized_didit_session_id,
+                    normalized_didit_status,
+                ),
             )
 
     def get_user(self, tg_user_id: int) -> sqlite3.Row | None:
@@ -100,22 +120,14 @@ class UserRepository(_BaseRepository):
 
             if new_role == "driver":
                 details = conn.execute(
-                    "SELECT driver_license_number, driver_license_valid_until FROM users WHERE id = ?",
+                    "SELECT didit_verification_status FROM users WHERE id = ?",
                     (user["id"],),
                 ).fetchone()
                 if not details:
                     return False, "Профиль водителя не найден."
-                license_number = str(details["driver_license_number"] or "").strip()
-                license_valid_until = str(details["driver_license_valid_until"] or "").strip()
-                if not license_number or not license_valid_until:
-                    return False, "Для роли водителя укажи номер прав и срок их действия."
-                try:
-                    switch_date = datetime.strptime(for_date, "%Y-%m-%d").date()
-                    expiry_date = datetime.strptime(license_valid_until, "%Y-%m-%d").date()
-                except ValueError:
-                    return False, "Некорректная дата действия прав в профиле."
-                if expiry_date < switch_date:
-                    return False, "Нельзя выбрать роль водителя: права недействительны на выбранную дату."
+                didit_status = str(details["didit_verification_status"] or "").strip()
+                if didit_status != "Approved":
+                    return False, "Нельзя выбрать роль водителя без подтверждённого KYC в Didit."
 
             conn.execute("UPDATE users SET role = ? WHERE id = ?", (new_role, user["id"]))
             return True, "Роль обновлена."
@@ -225,7 +237,7 @@ class TripRepository(_BaseRepository):
         with self.db.transaction() as conn:
             driver = conn.execute(
                 """
-                SELECT id, driver_license_number, driver_license_valid_until
+                SELECT id, didit_verification_status
                 FROM users
                 WHERE tg_user_id = ? AND role = 'driver'
                 """,
@@ -233,23 +245,15 @@ class TripRepository(_BaseRepository):
             ).fetchone()
             if not driver:
                 raise ValueError("Только водитель может создавать поездку.")
-            driver_license_number = str(driver["driver_license_number"] or "").strip()
-            driver_license_valid_until = str(driver["driver_license_valid_until"] or "").strip()
-            if not driver_license_number or not driver_license_valid_until:
-                raise ValueError("Для создания поездок водителю нужно заполнить данные прав.")
+            didit_status = str(driver["didit_verification_status"] or "").strip()
+            if didit_status != "Approved":
+                raise ValueError("Для создания поездки нужно пройти KYC в Didit.")
 
             trip_start = self._trip_start_dt(trip_date, departure_time)
             if trip_start is None:
                 raise ValueError("Некорректные дата/время поездки.")
             if trip_start <= datetime.now():
                 raise ValueError("Нельзя создать поездку на прошедшее время.")
-            try:
-                expiry_date = datetime.strptime(driver_license_valid_until, "%Y-%m-%d").date()
-            except ValueError as exc:
-                raise ValueError("Некорректная дата действия прав в профиле водителя.") from exc
-            if expiry_date < trip_start.date():
-                raise ValueError("Нельзя создать поездку: срок действия прав уже истёк.")
-
             cur = conn.execute(
                 """
                 INSERT INTO trips(
@@ -550,16 +554,16 @@ class Repo:
         name: str,
         username: str | None,
         role: str,
-        driver_license_number: str | None = None,
-        driver_license_valid_until: str | None = None,
+        didit_session_id: str | None = None,
+        didit_verification_status: str | None = None,
     ) -> None:
         self.users.upsert_user(
             tg_user_id,
             name,
             username,
             role,
-            driver_license_number=driver_license_number,
-            driver_license_valid_until=driver_license_valid_until,
+            didit_session_id=didit_session_id,
+            didit_verification_status=didit_verification_status,
         )
 
     def get_user(self, tg_user_id: int) -> sqlite3.Row | None:

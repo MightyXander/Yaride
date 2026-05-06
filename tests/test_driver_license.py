@@ -8,7 +8,7 @@ from app.db import Database
 from app.repo import Repo
 
 
-class DriverLicenseRulesTests(TestCase):
+class DriverKycRulesTests(TestCase):
     def setUp(self) -> None:
         self.db_file = NamedTemporaryFile(suffix=".db", delete=False)
         self.db_file.close()
@@ -33,29 +33,37 @@ class DriverLicenseRulesTests(TestCase):
                 ("Ярославль", "Фрунзенский", "Суздалка", "Финиш",),
             )
 
-    def test_upsert_driver_rejects_without_license_data(self) -> None:
-        with self.assertRaisesRegex(ValueError, "Для роли водителя укажи номер прав"):
+    def test_upsert_driver_rejects_without_approved_didit(self) -> None:
+        with self.assertRaisesRegex(ValueError, "KYC в Didit"):
             self.repo.upsert_user(1, "Driver", "driver1", "driver")
 
-    def test_upsert_driver_rejects_expired_license(self) -> None:
-        with self.assertRaisesRegex(ValueError, "Срок действия прав уже истёк"):
-            self.repo.upsert_user(
-                2,
-                "Expired Driver",
-                "driver2",
-                "driver",
-                driver_license_number="77 77 123456",
-                driver_license_valid_until=(date.today() - timedelta(days=1)).isoformat(),
-            )
+    def test_upsert_driver_allows_approved_didit(self) -> None:
+        self.repo.upsert_user(
+            2,
+            "Verified Driver",
+            "driver2",
+            "driver",
+            didit_session_id="didit_sess_1",
+            didit_verification_status="Approved",
+        )
+        user = self.repo.get_user(2)
+        self.assertIsNotNone(user)
+        assert user is not None
+        self.assertEqual(user["didit_verification_status"], "Approved")
 
-    def test_create_trip_allows_valid_license(self) -> None:
+    def test_create_trip_requires_approved_didit(self) -> None:
+        self.repo.upsert_user(4, "Passenger", "passenger4", "passenger")
+        ok, _ = self.repo.switch_role(4, "driver", date.today().isoformat())
+        self.assertFalse(ok)
+
+    def test_create_trip_allows_approved_didit(self) -> None:
         self.repo.upsert_user(
             3,
             "Valid Driver",
             "driver3",
             "driver",
-            driver_license_number="77 77 123456",
-            driver_license_valid_until=(date.today() + timedelta(days=365)).isoformat(),
+            didit_session_id="didit_sess_2",
+            didit_verification_status="Approved",
         )
         trip_id = self.repo.create_trip(
             tg_driver_id=3,
