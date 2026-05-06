@@ -41,6 +41,15 @@ class UserRepository(_BaseRepository):
     ) -> None:
         normalized_license = (driver_license_number or "").strip() or None
         normalized_license_valid_until = (driver_license_valid_until or "").strip() or None
+        if role == "driver":
+            if not normalized_license or not normalized_license_valid_until:
+                raise ValueError("Для роли водителя укажи номер прав и срок их действия.")
+            try:
+                expiry_date = datetime.strptime(normalized_license_valid_until, "%Y-%m-%d").date()
+            except ValueError as exc:
+                raise ValueError("Некорректная дата действия прав. Используй формат ГГГГ-ММ-ДД.") from exc
+            if expiry_date < date.today():
+                raise ValueError("Срок действия прав уже истёк. Укажи валидные права.")
         with self.db.transaction() as conn:
             row = conn.execute("SELECT id FROM users WHERE tg_user_id = ?", (tg_user_id,)).fetchone()
             if row:

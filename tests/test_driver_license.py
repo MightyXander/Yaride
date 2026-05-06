@@ -33,37 +33,19 @@ class DriverLicenseRulesTests(TestCase):
                 ("Ярославль", "Фрунзенский", "Суздалка", "Финиш",),
             )
 
-    def test_create_trip_rejects_driver_without_license_data(self) -> None:
-        self.repo.upsert_user(1, "Driver", "driver1", "driver")
-        with self.assertRaisesRegex(ValueError, "заполнить данные прав"):
-            self.repo.create_trip(
-                tg_driver_id=1,
-                start_point_id=1,
-                end_point_id=2,
-                trip_date=(date.today() + timedelta(days=1)).isoformat(),
-                departure_time="10:00",
-                price_rub=100,
-                seats_total=2,
-            )
+    def test_upsert_driver_rejects_without_license_data(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Для роли водителя укажи номер прав"):
+            self.repo.upsert_user(1, "Driver", "driver1", "driver")
 
-    def test_create_trip_rejects_expired_license(self) -> None:
-        self.repo.upsert_user(
-            2,
-            "Expired Driver",
-            "driver2",
-            "driver",
-            driver_license_number="77 77 123456",
-            driver_license_valid_until=(date.today() - timedelta(days=1)).isoformat(),
-        )
-        with self.assertRaisesRegex(ValueError, "срок действия прав уже истёк"):
-            self.repo.create_trip(
-                tg_driver_id=2,
-                start_point_id=1,
-                end_point_id=2,
-                trip_date=(date.today() + timedelta(days=1)).isoformat(),
-                departure_time="10:00",
-                price_rub=100,
-                seats_total=2,
+    def test_upsert_driver_rejects_expired_license(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Срок действия прав уже истёк"):
+            self.repo.upsert_user(
+                2,
+                "Expired Driver",
+                "driver2",
+                "driver",
+                driver_license_number="77 77 123456",
+                driver_license_valid_until=(date.today() - timedelta(days=1)).isoformat(),
             )
 
     def test_create_trip_allows_valid_license(self) -> None:
