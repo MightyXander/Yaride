@@ -38,6 +38,8 @@ class Database:
                     name TEXT NOT NULL,
                     username TEXT,
                     role TEXT CHECK(role IN ('driver', 'passenger')) NOT NULL,
+                    driver_license_number TEXT,
+                    driver_license_valid_until TEXT,
                     phone TEXT,
                     rating_avg REAL NOT NULL DEFAULT 0.0,
                     rating_count INTEGER NOT NULL DEFAULT 0,
@@ -92,14 +94,17 @@ class Database:
             self._seed_route_points(conn)
 
     def _migrate_schema(self, conn: sqlite3.Connection) -> None:
-        columns = {
-            row["name"]
-            for row in conn.execute("PRAGMA table_info(trips)").fetchall()
-        }
-        if "trip_date" not in columns:
+        trip_columns = {row["name"] for row in conn.execute("PRAGMA table_info(trips)").fetchall()}
+        if "trip_date" not in trip_columns:
             conn.execute("ALTER TABLE trips ADD COLUMN trip_date TEXT NOT NULL DEFAULT ''")
-        if "departure_time" not in columns:
+        if "departure_time" not in trip_columns:
             conn.execute("ALTER TABLE trips ADD COLUMN departure_time TEXT NOT NULL DEFAULT ''")
+
+        user_columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
+        if "driver_license_number" not in user_columns:
+            conn.execute("ALTER TABLE users ADD COLUMN driver_license_number TEXT")
+        if "driver_license_valid_until" not in user_columns:
+            conn.execute("ALTER TABLE users ADD COLUMN driver_license_valid_until TEXT")
 
     def _migrate_route_points_schema(self, conn: sqlite3.Connection) -> None:
         row = conn.execute(

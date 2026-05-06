@@ -189,6 +189,8 @@ def trip_calendar() -> YarideCalendar:
 class Registration(StatesGroup):
     waiting_name = State()
     waiting_role = State()
+    waiting_driver_license_number = State()
+    waiting_driver_license_valid_until = State()
     waiting_role_switch_date = State()
 
 
@@ -414,6 +416,16 @@ async def reg_role(callback, state: FSMContext, repo: Repo) -> None:
         await state.clear()
         await callback.answer()
         return
+    if role == "driver":
+        await state.update_data(role=role)
+        await state.set_state(Registration.waiting_driver_license_number)
+        await edit_or_send_clean(
+            callback,
+            "Для роли водителя укажи номер водительского удостоверения.",
+        )
+        await callback.answer()
+        return
+
     repo.upsert_user(callback.from_user.id, str(name), callback.from_user.username, role)
     await state.clear()
     await edit_or_send_clean(
@@ -423,6 +435,56 @@ async def reg_role(callback, state: FSMContext, repo: Repo) -> None:
         reply_markup=main_keyboard(),
     )
     await callback.answer("Роль сохранена")
+
+
+@router.message(Registration.waiting_driver_license_number)
+async def reg_driver_license_number(message: Message, state: FSMContext) -> None:
+    license_number = (message.text or "").strip()
+    if len(license_number) < 5:
+        await send_clean_message(message, "Номер прав слишком короткий. Введи корректный номер.")
+        return
+    await state.update_data(driver_license_number=license_number)
+    await state.set_state(Registration.waiting_driver_license_valid_until)
+    await send_clean_message(
+        message,
+        "Укажи срок действия прав в формате ГГГГ-ММ-ДД (например, 2030-12-31).",
+    )
+
+
+@router.message(Registration.waiting_driver_license_valid_until)
+async def reg_driver_license_valid_until(message: Message, state: FSMContext, repo: Repo) -> None:
+    date_text = (message.text or "").strip()
+    try:
+        valid_until = datetime.strptime(date_text, "%Y-%m-%d").date()
+    except ValueError:
+        await send_clean_message(message, "Некорректный формат даты. Используй ГГГГ-ММ-ДД.")
+        return
+    if valid_until < datetime.now().date():
+        await send_clean_message(message, "Срок действия прав уже истёк. Укажи валидные права.")
+        return
+
+    data = await state.get_data()
+    name = data.get("name")
+    if not name:
+        await state.clear()
+        await send_clean_message(message, "Сессия регистрации устарела. Нажми /start.")
+        return
+    repo.upsert_user(
+        message.from_user.id,
+        str(name),
+        message.from_user.username,
+        "driver",
+        driver_license_number=str(data.get("driver_license_number", "")),
+        driver_license_valid_until=valid_until.isoformat(),
+    )
+    await state.clear()
+    await send_clean_message(
+        message,
+        "Профиль водителя сохранён.\n"
+        "Права подтверждены как действующие.\n"
+        "Условия сервиса: плата покрывает бензин и износ, сервис не является такси.",
+        reply_markup=main_keyboard(),
+    )
 
 
 @router.message(F.text.in_(["Найти поездки"]))
