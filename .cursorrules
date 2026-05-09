@@ -1,0 +1,51 @@
+# Yaride MVP — Cursor rules
+
+Read `AGENTS.md` for run commands, tests, and repo-specific caveats. This file summarizes conventions for AI-assisted edits.
+
+## Project
+
+Telegram carpool bot for Yaroslavl (Russia): single Python process, **aiogram 3.x**, **SQLite** persistence (`yaride.db` by default, path from `DB_PATH`). No Docker, no external databases, no microservices.
+
+## Commands
+
+- Run: `python3 main.py`
+- Tests: `python3 -m unittest discover -s tests -v`
+- Ad-hoc syntax check: `python3 -m py_compile <file>`
+- Use **`python3`**, not `python` (no symlink on this environment).
+
+## Layout
+
+- `main.py` — async entry; delegates to `app.bot.run`.
+- `app/` — bot router, FSM flows (`trip_flow`, `navigation_flow`), `Repo`, `Database`, UI/formatting helpers.
+- `tests/` — unit tests only; **no network, no real DB**.
+
+## Python style (match existing code)
+
+- `from __future__ import annotations` where the codebase already uses it.
+- **snake_case** for modules, functions, variables; type hints where patterns exist.
+- **dataclasses** with `slots=True` for immutable settings-style objects (see `app.config.Settings`).
+- Import order: stdlib → third party (aiogram, dotenv, …) → `app.*`.
+- Prefer extending **Router** handlers, **FSM** states, and existing orchestrators over duplicating handler logic.
+
+## aiogram / Telegram
+
+- Use aiogram 3 patterns already in `app/bot.py` (filters, FSM, callbacks, calendars).
+- User-visible copy may be **Russian**; preserve tone and do not silently translate strings unless asked.
+
+## Persistence
+
+- SQLite access goes through `app/db.py` / `app/repo.py`; do not introduce another DB layer without an explicit request.
+
+## Testing
+
+- Framework: **`unittest`**, async tests via **`IsolatedAsyncioTestCase`**.
+- Follow existing tests: lightweight fakes for FSM (`_FakeState`), repos, and callbacks; **`AsyncMock`** where appropriate.
+- Keep tests deterministic and offline.
+
+## Configuration & secrets
+
+- Settings load via `python-dotenv` from `.env` (`BOT_TOKEN`, `DB_PATH`). The repo treats `.env` as a dev convenience per `AGENTS.md` — **do not rotate or remove tokens** in commits.
+
+## Scope of changes
+
+- Implement the requested behavior with **minimal diff**; avoid drive-by refactors, unrelated files, or new architecture (microservices, Postgres, etc.) unless explicitly requested.
