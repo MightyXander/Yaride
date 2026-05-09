@@ -22,7 +22,7 @@ The bot uses long-polling via aiogram. It requires a valid `BOT_TOKEN` in the `.
 python3 -m unittest discover -s tests -v
 ```
 
-Tests are pure unit tests (no network, no database) using `unittest.IsolatedAsyncioTestCase`. They import from `app/` so run them from the repo root.
+Tests run from the repo root. Trip-flow tests use `unittest.IsolatedAsyncioTestCase` without Telegram; driver-license tests use a temporary SQLite file per case.
 
 ### Key caveats
 
@@ -30,3 +30,5 @@ Tests are pure unit tests (no network, no database) using `unittest.IsolatedAsyn
 - No linter is configured in the repo (no flake8, ruff, mypy, or pylint config files). Static checks can be done ad-hoc with `python3 -m py_compile <file>`.
 - The `.env` file is committed to the repo with a bot token. Treat it as a development convenience; do not rotate or remove it.
 - SQLite DB file (`yaride.db`) is created at first run and is gitignored implicitly (not tracked). Delete it to reset state.
+- Driver identity uses table `driver_license_verifications` (self-declared license number + expiry); there is no integration with GIBDD or external verification APIs.
+- Users already registered as passengers who want to become drivers should run `/driver_license` to enter license data before the in-bot role switch to driver can succeed.

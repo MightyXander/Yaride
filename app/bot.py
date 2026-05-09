@@ -21,6 +21,7 @@ from aiogram_calendar.schemas import SimpleCalAct
 from app.chat_ui import ChatUiService
 from app.config import load_settings
 from app.db import Database
+from app.driver_license import parse_valid_until_iso
 from app.formatting import format_trip_row, format_trip_when
 from app.navigation_flow import NavigationFlow
 from app.repo import Repo
@@ -189,6 +190,8 @@ def trip_calendar() -> YarideCalendar:
 class Registration(StatesGroup):
     waiting_name = State()
     waiting_role = State()
+    waiting_driver_license_number = State()
+    waiting_driver_license_valid_until = State()
     waiting_role_switch_date = State()
 
 
@@ -414,6 +417,17 @@ async def reg_role(callback, state: FSMContext, repo: Repo) -> None:
         await state.clear()
         await callback.answer()
         return
+    if role == "driver":
+        await state.update_data(role=role)
+        await state.set_state(Registration.waiting_driver_license_number)
+        await edit_or_send_clean(
+            callback,
+            "Для роли водителя укажи номер водительского удостоверения.\n"
+            "(Базовая проверка по введённым данным; без запросов в ГИБДД.)",
+        )
+        await callback.answer()
+        return
+
     repo.upsert_user(callback.from_user.id, str(name), callback.from_user.username, role)
     await state.clear()
     await edit_or_send_clean(
@@ -423,6 +437,73 @@ async def reg_role(callback, state: FSMContext, repo: Repo) -> None:
         reply_markup=main_keyboard(),
     )
     await callback.answer("Роль сохранена")
+
+
+@router.message(Registration.waiting_driver_license_number)
+async def reg_driver_license_number(message: Message, state: FSMContext) -> None:
+    license_number = (message.text or "").strip()
+    if len(license_number) < 5:
+        await send_clean_message(message, "Номер слишком короткий. Введи номер водительского удостоверения.")
+        return
+    await state.update_data(driver_license_number=license_number)
+    await state.set_state(Registration.waiting_driver_license_valid_until)
+    await send_clean_message(
+        message,
+        "Укажи срок действия прав в формате ГГГГ-ММ-ДД (например, 2030-12-31).",
+    )
+
+
+@router.message(Registration.waiting_driver_license_valid_until)
+async def reg_driver_license_valid_until(message: Message, state: FSMContext, repo: Repo) -> None:
+    try:
+        valid_until = parse_valid_until_iso((message.text or "").strip())
+    except ValueError as exc:
+        await send_clean_message(message, str(exc))
+        return
+
+    data = await state.get_data()
+    name = data.get("name")
+    if not name:
+        await state.clear()
+        await send_clean_message(message, "Сессия регистрации устарела. Нажми /start.")
+        return
+
+    try:
+        repo.register_driver_with_license(
+            message.from_user.id,
+            str(name),
+            message.from_user.username,
+            str(data.get("driver_license_number", "")),
+            valid_until,
+        )
+    except ValueError as exc:
+        await send_clean_message(message, str(exc))
+        return
+
+    await state.clear()
+    await send_clean_message(
+        message,
+        "Профиль водителя сохранён.\n"
+        "Данные ВУ приняты (самодекларация). При поездке действующие права обязательны по закону.\n"
+        "Условия сервиса: плата покрывает бензин и износ, сервис не является такси.",
+        reply_markup=main_keyboard(),
+    )
+
+
+@router.message(Command("driver_license"))
+async def driver_license_command(message: Message, state: FSMContext, repo: Repo) -> None:
+    """Пассажир может добавить ВУ перед сменой роли на водителя."""
+    user = repo.get_user(message.from_user.id)
+    if not user:
+        await send_clean_message(message, "Сначала зарегистрируйся через /start.")
+        return
+    await state.update_data(name=user["name"])
+    await state.set_state(Registration.waiting_driver_license_number)
+    await send_clean_message(
+        message,
+        "Введи номер водительского удостоверения.\n"
+        "(Базовая проверка по введённым данным; без запросов в ГИБДД.)",
+    )
 
 
 @router.message(F.text.in_(["Найти поездки"]))

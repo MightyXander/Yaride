@@ -43,8 +43,37 @@ class Database:
                     rating_count INTEGER NOT NULL DEFAULT 0,
                     trips_driver_count INTEGER NOT NULL DEFAULT 0,
                     trips_passenger_count INTEGER NOT NULL DEFAULT 0,
-                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
+
+                -- Связка одного пользователя с разными клиентами (бот, будущие web/mobile).
+                CREATE TABLE IF NOT EXISTS user_identities (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    provider TEXT NOT NULL CHECK (provider IN ('telegram')),
+                    external_uid TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(provider, external_uid),
+                    UNIQUE(user_id, provider)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_user_identities_lookup
+                ON user_identities(provider, external_uid);
+
+                -- Базовая верификация водителя по данным ВУ (самодекларация, без ГИБДД и внешних контуров).
+                CREATE TABLE IF NOT EXISTS driver_license_verifications (
+                    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+                    license_series_number TEXT NOT NULL,
+                    valid_until TEXT NOT NULL,
+                    verification_method TEXT NOT NULL DEFAULT 'self_declared'
+                        CHECK (verification_method IN ('self_declared')),
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_driver_license_valid_until
+                ON driver_license_verifications(valid_until);
 
                 CREATE TABLE IF NOT EXISTS route_points (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -88,6 +117,9 @@ class Database:
                 """
             )
             self._migrate_schema(conn)
+            self._migrate_users_columns(conn)
+            self._migrate_user_identities(conn)
+            self._migrate_driver_license_verifications(conn)
             self._migrate_route_points_schema(conn)
             self._seed_route_points(conn)
 
@@ -100,6 +132,61 @@ class Database:
             conn.execute("ALTER TABLE trips ADD COLUMN trip_date TEXT NOT NULL DEFAULT ''")
         if "departure_time" not in columns:
             conn.execute("ALTER TABLE trips ADD COLUMN departure_time TEXT NOT NULL DEFAULT ''")
+
+    def _migrate_users_columns(self, conn: sqlite3.Connection) -> None:
+        user_cols = {row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
+        if "updated_at" not in user_cols:
+            conn.execute(
+                "ALTER TABLE users ADD COLUMN updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP"
+            )
+
+    def _migrate_user_identities(self, conn: sqlite3.Connection) -> None:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user_identities (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                provider TEXT NOT NULL CHECK (provider IN ('telegram')),
+                external_uid TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(provider, external_uid),
+                UNIQUE(user_id, provider)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_user_identities_lookup
+            ON user_identities(provider, external_uid)
+            """
+        )
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO user_identities(user_id, provider, external_uid)
+            SELECT id, 'telegram', CAST(tg_user_id AS TEXT) FROM users
+            """
+        )
+
+    def _migrate_driver_license_verifications(self, conn: sqlite3.Connection) -> None:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS driver_license_verifications (
+                user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+                license_series_number TEXT NOT NULL,
+                valid_until TEXT NOT NULL,
+                verification_method TEXT NOT NULL DEFAULT 'self_declared'
+                    CHECK (verification_method IN ('self_declared')),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_driver_license_valid_until
+            ON driver_license_verifications(valid_until)
+            """
+        )
 
     def _migrate_route_points_schema(self, conn: sqlite3.Connection) -> None:
         row = conn.execute(

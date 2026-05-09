@@ -5,12 +5,23 @@ from datetime import date, datetime
 from typing import Iterable
 
 from app.db import Database
+from app.driver_license import assert_license_not_expired, normalize_license_number
 from app.seeds import ROUTE_HIERARCHY
 
 
 class _BaseRepository:
     def __init__(self, db: Database) -> None:
         self.db = db
+
+    @staticmethod
+    def _ensure_telegram_identity(conn: sqlite3.Connection, user_id: int, tg_user_id: int) -> None:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO user_identities(user_id, provider, external_uid)
+            VALUES (?, 'telegram', ?)
+            """,
+            (user_id, str(tg_user_id)),
+        )
 
     @staticmethod
     def _trip_start_dt(trip_date: str | None, departure_time: str | None) -> datetime | None:
@@ -31,26 +42,33 @@ class _BaseRepository:
 
 class UserRepository(_BaseRepository):
     def upsert_user(self, tg_user_id: int, name: str, username: str | None, role: str) -> None:
+        if role == "driver":
+            raise ValueError(
+                "Роль водителя сохраняется только вместе с данными водительского удостоверения."
+            )
         with self.db.transaction() as conn:
             row = conn.execute("SELECT id FROM users WHERE tg_user_id = ?", (tg_user_id,)).fetchone()
             if row:
                 conn.execute(
                     """
                     UPDATE users
-                    SET name = ?, username = ?, role = ?
+                    SET name = ?, username = ?, role = ?, updated_at = CURRENT_TIMESTAMP
                     WHERE tg_user_id = ?
                     """,
                     (name, username, role, tg_user_id),
                 )
+                self._ensure_telegram_identity(conn, int(row["id"]), tg_user_id)
                 return
 
-            conn.execute(
+            cur = conn.execute(
                 """
                 INSERT INTO users(tg_user_id, name, username, role)
                 VALUES (?, ?, ?, ?)
                 """,
                 (tg_user_id, name, username, role),
             )
+            uid = int(cur.lastrowid)
+            self._ensure_telegram_identity(conn, uid, tg_user_id)
 
     def get_user(self, tg_user_id: int) -> sqlite3.Row | None:
         with self.db.transaction() as conn:
@@ -79,8 +97,79 @@ class UserRepository(_BaseRepository):
                 if cnt_row and int(cnt_row["cnt"]) > 0:
                     return False, "Нельзя сменить роль: на выбранную дату есть активные поездки."
 
-            conn.execute("UPDATE users SET role = ? WHERE id = ?", (new_role, user["id"]))
+            if new_role == "driver":
+                lic = conn.execute(
+                    "SELECT valid_until FROM driver_license_verifications WHERE user_id = ?",
+                    (user["id"],),
+                ).fetchone()
+                if not lic:
+                    return False, "Для роли водителя сначала укажи данные водительского удостоверения."
+                try:
+                    switch_date = datetime.strptime(for_date, "%Y-%m-%d").date()
+                    expiry_date = datetime.strptime(str(lic["valid_until"]), "%Y-%m-%d").date()
+                except ValueError:
+                    return False, "Некорректная дата действия прав в профиле."
+                if expiry_date < switch_date:
+                    return False, "Нельзя выбрать роль водителя: права недействительны на выбранную дату."
+
+            conn.execute(
+                "UPDATE users SET role = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (new_role, user["id"]),
+            )
             return True, "Роль обновлена."
+
+
+class DriverLicenseRepository(_BaseRepository):
+    """Базовая верификация по ВУ: самодекларация + проверка формата и срока (без ГИБДД)."""
+
+    def register_driver_with_license(
+        self,
+        tg_user_id: int,
+        name: str,
+        username: str | None,
+        license_series_number: str,
+        valid_until: date,
+    ) -> None:
+        normalized = normalize_license_number(license_series_number)
+        assert_license_not_expired(valid_until)
+        valid_iso = valid_until.isoformat()
+        with self.db.transaction() as conn:
+            row = conn.execute("SELECT id FROM users WHERE tg_user_id = ?", (tg_user_id,)).fetchone()
+            if row:
+                uid = int(row["id"])
+                conn.execute(
+                    """
+                    UPDATE users
+                    SET name = ?, username = ?, role = 'driver', updated_at = CURRENT_TIMESTAMP
+                    WHERE tg_user_id = ?
+                    """,
+                    (name, username, tg_user_id),
+                )
+            else:
+                cur = conn.execute(
+                    """
+                    INSERT INTO users(tg_user_id, name, username, role)
+                    VALUES (?, ?, ?, 'driver')
+                    """,
+                    (tg_user_id, name, username),
+                )
+                uid = int(cur.lastrowid)
+
+            self._ensure_telegram_identity(conn, uid, tg_user_id)
+
+            conn.execute(
+                """
+                INSERT INTO driver_license_verifications(
+                    user_id, license_series_number, valid_until, verification_method, updated_at
+                ) VALUES (?, ?, ?, 'self_declared', CURRENT_TIMESTAMP)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    license_series_number = excluded.license_series_number,
+                    valid_until = excluded.valid_until,
+                    verification_method = 'self_declared',
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (uid, normalized, valid_iso),
+            )
 
 
 class RouteRepository(_BaseRepository):
@@ -186,11 +275,19 @@ class TripRepository(_BaseRepository):
     ) -> int:
         with self.db.transaction() as conn:
             driver = conn.execute(
-                "SELECT id FROM users WHERE tg_user_id = ? AND role = 'driver'",
-                (tg_driver_id,),
+                """
+                SELECT u.id
+                FROM users u
+                INNER JOIN driver_license_verifications d ON d.user_id = u.id
+                WHERE u.tg_user_id = ? AND u.role = 'driver'
+                  AND date(d.valid_until) >= date(?)
+                """,
+                (tg_driver_id, trip_date),
             ).fetchone()
             if not driver:
-                raise ValueError("Только водитель может создавать поездку.")
+                raise ValueError(
+                    "Только водитель с действующей записью о водительском удостоверении может создавать поездку."
+                )
 
             trip_start = self._trip_start_dt(trip_date, departure_time)
             if trip_start is None:
@@ -491,9 +588,22 @@ class Repo:
         self.routes = RouteRepository(db)
         self.trips = TripRepository(db)
         self.bookings = BookingRepository(db)
+        self.driver_licenses = DriverLicenseRepository(db)
 
     def upsert_user(self, tg_user_id: int, name: str, username: str | None, role: str) -> None:
         self.users.upsert_user(tg_user_id, name, username, role)
+
+    def register_driver_with_license(
+        self,
+        tg_user_id: int,
+        name: str,
+        username: str | None,
+        license_series_number: str,
+        valid_until: date,
+    ) -> None:
+        self.driver_licenses.register_driver_with_license(
+            tg_user_id, name, username, license_series_number, valid_until
+        )
 
     def get_user(self, tg_user_id: int) -> sqlite3.Row | None:
         return self.users.get_user(tg_user_id)
