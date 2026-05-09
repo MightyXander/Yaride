@@ -93,7 +93,7 @@ class NavigationFlowTests(IsolatedAsyncioTestCase):
             edit_or_send_clean=edit_or_send_clean,
             send_flow_step=send_flow_step,
             send_clean_message=send_clean_message,
-            main_keyboard=lambda: "MAIN",
+            main_keyboard=lambda repo, uid: "MAIN",
             role_switch_keyboard=lambda role: f"ROLE:{role}",
             add_back_button=lambda markup, back: ("BACK", markup, back),
             localities_keyboard=lambda prefix, items: ("LOC", prefix, tuple(items)),
@@ -120,7 +120,8 @@ class NavigationFlowTests(IsolatedAsyncioTestCase):
         flow, _, _, send_clean_message = self._build()
         state = _FakeState()
 
-        await flow.handle_reply_back(object(), state, _FakeRepo())
+        fake_msg = SimpleNamespace(from_user=SimpleNamespace(id=1))
+        await flow.handle_reply_back(fake_msg, state, _FakeRepo())
 
         send_clean_message.assert_awaited_once()
         self.assertEqual(send_clean_message.await_args.args[1], "Главное меню")

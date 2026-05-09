@@ -88,7 +88,12 @@ class Database:
                 """
             )
             self._migrate_schema(conn)
+            self._migrate_users_dl_columns(conn)
+            self._migrate_users_min_passenger_rating(conn)
             self._migrate_route_points_schema(conn)
+            self._migrate_favorites_and_ratings(conn)
+            self._migrate_bot_chat_messages(conn)
+            self._migrate_trip_ratings_review_text(conn)
             self._seed_route_points(conn)
 
     def _migrate_schema(self, conn: sqlite3.Connection) -> None:
@@ -100,6 +105,27 @@ class Database:
             conn.execute("ALTER TABLE trips ADD COLUMN trip_date TEXT NOT NULL DEFAULT ''")
         if "departure_time" not in columns:
             conn.execute("ALTER TABLE trips ADD COLUMN departure_time TEXT NOT NULL DEFAULT ''")
+
+    def _migrate_users_dl_columns(self, conn: sqlite3.Connection) -> None:
+        cols = {row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
+        if "dl_series_number" not in cols:
+            conn.execute("ALTER TABLE users ADD COLUMN dl_series_number TEXT")
+        if "dl_valid_until" not in cols:
+            conn.execute("ALTER TABLE users ADD COLUMN dl_valid_until TEXT")
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_users_dl_series
+            ON users(dl_series_number)
+            WHERE dl_series_number IS NOT NULL AND dl_series_number != ''
+            """
+        )
+
+    def _migrate_users_min_passenger_rating(self, conn: sqlite3.Connection) -> None:
+        cols = {row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
+        if "min_passenger_rating" not in cols:
+            conn.execute(
+                "ALTER TABLE users ADD COLUMN min_passenger_rating REAL"
+            )
 
     def _migrate_route_points_schema(self, conn: sqlite3.Connection) -> None:
         row = conn.execute(
@@ -143,6 +169,65 @@ class Database:
         conn.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_route_point ON route_points(locality, district, admin_area, title)"
         )
+
+    def _migrate_favorites_and_ratings(self, conn: sqlite3.Connection) -> None:
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS favorite_routes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tg_user_id INTEGER NOT NULL,
+                start_point_id INTEGER NOT NULL,
+                end_point_id INTEGER NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(tg_user_id, start_point_id, end_point_id),
+                FOREIGN KEY(start_point_id) REFERENCES route_points(id),
+                FOREIGN KEY(end_point_id) REFERENCES route_points(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_favorite_routes_user ON favorite_routes(tg_user_id);
+
+            CREATE TABLE IF NOT EXISTS trip_ratings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trip_id INTEGER NOT NULL,
+                rater_user_id INTEGER NOT NULL,
+                rated_user_id INTEGER NOT NULL,
+                stars INTEGER NOT NULL CHECK(stars >= 1 AND stars <= 5),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(trip_id, rater_user_id, rated_user_id),
+                FOREIGN KEY(trip_id) REFERENCES trips(id),
+                FOREIGN KEY(rater_user_id) REFERENCES users(id),
+                FOREIGN KEY(rated_user_id) REFERENCES users(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_trip_ratings_trip ON trip_ratings(trip_id);
+
+            CREATE TABLE IF NOT EXISTS rating_prompts_sent (
+                trip_id INTEGER NOT NULL,
+                rater_user_id INTEGER NOT NULL,
+                rated_user_id INTEGER NOT NULL,
+                sent_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (trip_id, rater_user_id, rated_user_id),
+                FOREIGN KEY(trip_id) REFERENCES trips(id),
+                FOREIGN KEY(rater_user_id) REFERENCES users(id),
+                FOREIGN KEY(rated_user_id) REFERENCES users(id)
+            );
+            """
+        )
+
+    def _migrate_bot_chat_messages(self, conn: sqlite3.Connection) -> None:
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS bot_chat_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                chat_id INTEGER NOT NULL,
+                message_id INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_bot_chat_messages_chat ON bot_chat_messages(chat_id);
+            """
+        )
+
+    def _migrate_trip_ratings_review_text(self, conn: sqlite3.Connection) -> None:
+        cols = {row["name"] for row in conn.execute("PRAGMA table_info(trip_ratings)").fetchall()}
+        if cols and "review_text" not in cols:
+            conn.execute("ALTER TABLE trip_ratings ADD COLUMN review_text TEXT")
 
     def _seed_route_points(self, conn: sqlite3.Connection) -> None:
         existing = conn.execute("SELECT COUNT(*) AS cnt FROM route_points").fetchone()["cnt"]

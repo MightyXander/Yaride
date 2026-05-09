@@ -1,34 +1,51 @@
 from __future__ import annotations
 
+import asyncio
 import calendar
+import html
 import logging
 from datetime import date as date_cls
 from datetime import datetime
 
 from aiogram import Bot, Dispatcher, F, Router
-from aiogram.filters import Command
+from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import (
     CallbackQuery,
+    ForceReply,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     Message,
+    ReplyKeyboardMarkup,
 )
 from aiogram_calendar import SimpleCalendar, SimpleCalendarCallback
 from aiogram_calendar.schemas import SimpleCalAct
 
 from app.chat_ui import ChatUiService
+from app.filters import RatingReviewReplyFilter
 from app.config import load_settings
 from app.db import Database
+from app.driver_license import normalize_dl_series_number, parse_expiry_date, validate_license_not_expired
 from app.formatting import format_trip_row, format_trip_when
 from app.navigation_flow import NavigationFlow
+from app.rating_worker import process_pending_rating_prompts
 from app.repo import Repo
+from app.security.rating_input import MAX_REVIEW_CHARS, parse_rate_callback_data
+from app.services.rating_service import RatingService
 from app.trip_flow import TripFlowOrchestrator
 from app.ui import KeyboardFactory
 
 logger = logging.getLogger(__name__)
 router = Router()
+
+# Устаревшие inline-кнопки при пустом FSM
+STALE_CREATE_FLOW = (
+    "Сессия создания поездки устарела (часто это старая кнопка). "
+    "Начни заново: «Создать поездку»."
+)
+STALE_SEARCH_FLOW = "Сессия поиска устарела. Начни заново: «Найти поездки»."
 
 
 class YarideCalendar(SimpleCalendar):
@@ -189,6 +206,8 @@ def trip_calendar() -> YarideCalendar:
 class Registration(StatesGroup):
     waiting_name = State()
     waiting_role = State()
+    waiting_dl_series = State()
+    waiting_dl_expiry = State()
     waiting_role_switch_date = State()
 
 
@@ -223,15 +242,33 @@ class CancelBooking(StatesGroup):
     waiting_reason = State()
 
 
+class AccountUpgrade(StatesGroup):
+    """Пассажир → водитель из раздела «Аккаунт» (те же проверки ВУ, что при регистрации)."""
+
+    waiting_dl_series = State()
+    waiting_dl_expiry = State()
+
+
 KEYBOARDS = KeyboardFactory()
+_REPO_FOR_KB: Repo | None = None
+
+
+def main_keyboard(repo: Repo, tg_user_id: int) -> ReplyKeyboardMarkup:
+    user = repo.get_user(tg_user_id)
+    is_driver = user is not None and user["role"] == "driver"
+    return KEYBOARDS.main_keyboard(is_driver=is_driver)
+
+
+def _chat_main_kb(tg_user_id: int) -> ReplyKeyboardMarkup:
+    if _REPO_FOR_KB is None:
+        return KEYBOARDS.main_keyboard(is_driver=False)
+    return main_keyboard(_REPO_FOR_KB, tg_user_id)
+
+
 CHAT_UI = ChatUiService(
-    main_keyboard_provider=KEYBOARDS.main_keyboard,
+    main_keyboard_provider=_chat_main_kb,
     flow_keyboard_provider=KEYBOARDS.flow_keyboard,
 )
-
-
-def main_keyboard():
-    return KEYBOARDS.main_keyboard()
 
 
 def flow_keyboard():
@@ -278,12 +315,44 @@ def trips_keyboard(trips: list) -> InlineKeyboardMarkup:
     return KEYBOARDS.trips_keyboard(trips)
 
 
-def debug_book_keyboard(trips: list) -> InlineKeyboardMarkup:
-    return KEYBOARDS.debug_book_keyboard(trips)
-
-
 def cancel_booking_keyboard(bookings: list) -> InlineKeyboardMarkup:
     return KEYBOARDS.cancel_booking_keyboard(bookings)
+
+
+def driver_manage_root_keyboard(open_trips: list) -> InlineKeyboardMarkup:
+    return KEYBOARDS.driver_manage_root_keyboard(open_trips)
+
+
+def driver_trip_detail_keyboard(trip_id: int, bookings: list) -> InlineKeyboardMarkup:
+    return KEYBOARDS.driver_trip_detail_keyboard(trip_id, bookings)
+
+
+def driver_rating_threshold_keyboard() -> InlineKeyboardMarkup:
+    return KEYBOARDS.driver_rating_threshold_keyboard()
+
+
+def favorite_routes_keyboard(rows: list) -> InlineKeyboardMarkup:
+    return KEYBOARDS.favorite_routes_keyboard(rows)
+
+
+def add_favorite_keyboard(trip_id: int) -> InlineKeyboardMarkup:
+    return KEYBOARDS.add_favorite_keyboard(trip_id)
+
+
+def account_kb_menu(show_become_driver: bool) -> InlineKeyboardMarkup:
+    return KEYBOARDS.account_menu_keyboard(show_become_driver=show_become_driver)
+
+
+def account_kb_back() -> InlineKeyboardMarkup:
+    return KEYBOARDS.account_back_keyboard()
+
+
+def _passenger_rating_hint(row) -> str:
+    rc = int(row["rating_count"] or 0)
+    ra = float(row["rating_avg"] or 0.0)
+    if rc == 0:
+        return "нет оценок"
+    return f"{ra:.1f}, оценок: {rc}"
 
 
 async def track_bot_message(message: Message) -> None:
@@ -382,14 +451,20 @@ NAVIGATION_FLOW = NavigationFlow(
 
 
 @router.message(Command("start"))
-async def start(message: Message, state: FSMContext) -> None:
+async def start(message: Message, state: FSMContext, repo: Repo) -> None:
     await cleanup_chat(message)
     await state.clear()
+    user = repo.get_user(message.from_user.id)
+    if user:
+        name = str(user["name"] or "").strip() or (message.from_user.first_name or "друг")
+        await state.update_data(name=name)
+        await state.set_state(Registration.waiting_role)
+        text = f"<b>{html.escape(name)}</b> Давно не виделись. Выберите вашу роль:"
+        sent = await message.answer(text, parse_mode="HTML", reply_markup=role_keyboard())
+        await track_bot_message(sent)
+        return
     await state.set_state(Registration.waiting_name)
-    sent = await message.answer(
-        "Привет! Введи имя для профиля.\n"
-        "После этого выбери роль: водитель или пассажир."
-    )
+    sent = await message.answer("Привет! Введи имя пользователя — так тебя будут видеть другие участники.")
     await track_bot_message(sent)
 
 
@@ -397,7 +472,7 @@ async def start(message: Message, state: FSMContext) -> None:
 async def reg_name(message: Message, state: FSMContext) -> None:
     name = (message.text or "").strip()
     if len(name) < 2:
-        await send_clean_message(message, "Имя слишком короткое, попробуй ещё раз.")
+        await send_clean_message(message, "Имя пользователя слишком короткое, попробуй ещё раз.")
         return
     await state.update_data(name=name)
     await state.set_state(Registration.waiting_role)
@@ -414,15 +489,253 @@ async def reg_role(callback, state: FSMContext, repo: Repo) -> None:
         await state.clear()
         await callback.answer()
         return
-    repo.upsert_user(callback.from_user.id, str(name), callback.from_user.username, role)
-    await state.clear()
-    await edit_or_send_clean(
-        callback,
-        "Профиль сохранён.\n"
-        "Условия сервиса: плата покрывает бензин и износ, сервис не является такси.",
-        reply_markup=main_keyboard(),
+    if role == "passenger":
+        repo.upsert_user(callback.from_user.id, str(name), callback.from_user.username, "passenger")
+        await state.clear()
+        await edit_or_send_clean(
+            callback,
+            "Профиль сохранён.\n"
+            "Условия сервиса: плата покрывает бензин и износ, сервис не является такси.",
+            reply_markup=main_keyboard(repo, callback.from_user.id),
+        )
+        await callback.answer("Роль сохранена")
+        return
+    if role == "driver":
+        await state.set_state(Registration.waiting_dl_series)
+        await edit_or_send_clean(
+            callback,
+            "Роль «водитель»: сначала локальная проверка формата ВУ (без запросов в ГИБДД).\n\n"
+            "Введи серию и номер как на пластиковом бланке: 4 цифры, 2 буквы "
+            "(А, В, Е, К, М, Н, О, Р, С, Т, У, Х), 6 цифр. Можно с пробелами — например 9916 АВ 123456.",
+            reply_markup=flow_keyboard(),
+        )
+        await callback.answer()
+        return
+    await callback.answer("Неизвестная роль.", show_alert=True)
+
+
+@router.message(Registration.waiting_dl_series)
+async def reg_dl_series(message: Message, state: FSMContext) -> None:
+    ok, normalized, err = normalize_dl_series_number(message.text or "")
+    if not ok:
+        await send_clean_message(message, err or "Некорректные данные ВУ.")
+        return
+    await state.update_data(dl_series_number=normalized)
+    await state.set_state(Registration.waiting_dl_expiry)
+    await send_clean_message(
+        message,
+        "Теперь введи дату окончания срока действия ВУ (поле «3b») в формате ДД.ММ.ГГГГ.",
+        reply_markup=flow_keyboard(),
     )
-    await callback.answer("Роль сохранена")
+
+
+@router.message(Registration.waiting_dl_expiry)
+async def reg_dl_expiry(message: Message, state: FSMContext, repo: Repo) -> None:
+    ok, expiry_date, err = parse_expiry_date(message.text or "")
+    if not ok or not expiry_date:
+        await send_clean_message(message, err or "Некорректная дата.")
+        return
+    ok_exp, msg_exp = validate_license_not_expired(expiry_date)
+    if not ok_exp:
+        await send_clean_message(message, msg_exp or "ВУ недействительно.")
+        return
+    data = await state.get_data()
+    name = data.get("name")
+    if not name:
+        await send_clean_message(message, "Сессия регистрации устарела. Нажми /start.")
+        await state.clear()
+        return
+    dl_series = data.get("dl_series_number")
+    if not dl_series:
+        await send_clean_message(message, "Сначала введи серию и номер ВУ.")
+        await state.set_state(Registration.waiting_dl_series)
+        return
+    try:
+        repo.upsert_user(
+            message.from_user.id,
+            str(name),
+            message.from_user.username,
+            "driver",
+            dl_series_number=str(dl_series),
+            dl_valid_until=expiry_date.isoformat(),
+        )
+    except ValueError as exc:
+        await send_clean_message(message, str(exc))
+        return
+    await state.clear()
+    await send_clean_message(
+        message,
+        "Профиль водителя сохранён: формат ВУ проверен локально.\n"
+        "Условия сервиса: плата покрывает бензин и износ, сервис не является такси.",
+        reply_markup=main_keyboard(repo, message.from_user.id),
+    )
+
+
+@router.message(F.text == "Избранные маршруты")
+async def favorite_routes_menu(message: Message, repo: Repo) -> None:
+    user = repo.get_user(message.from_user.id)
+    if not user:
+        await send_clean_message(message, "Сначала зарегистрируйся через /start.")
+        return
+    rows = repo.list_favorite_routes(message.from_user.id)
+    if not rows:
+        await send_clean_message(
+            message,
+            "Пока нет избранных маршрутов. После успешной брони можно добавить маршрут кнопкой под сообщением.",
+        )
+        return
+    await send_clean_message(
+        message,
+        "Избранные маршруты — нажми маршрут, затем выбери дату поездки:",
+        reply_markup=favorite_routes_keyboard(rows),
+    )
+
+
+@router.message(F.text == "Аккаунт")
+async def account_open(message: Message, repo: Repo) -> None:
+    user = repo.get_user(message.from_user.id)
+    if not user:
+        await send_clean_message(message, "Сначала зарегистрируйся через /start.")
+        return
+    await send_clean_message(
+        message,
+        "Раздел «Аккаунт»:",
+        reply_markup=account_kb_menu(show_become_driver=user["role"] == "passenger"),
+    )
+
+
+@router.callback_query(F.data.startswith("account:"))
+async def account_panel(callback: CallbackQuery, state: FSMContext, repo: Repo) -> None:
+    action = callback.data.split(":", 1)[1]
+    user = repo.get_user(callback.from_user.id)
+    if not user:
+        await callback.answer("Сначала /start.", show_alert=True)
+        return
+
+    show_drv = user["role"] == "passenger"
+    menu = account_kb_menu(show_become_driver=show_drv)
+    back = account_kb_back()
+
+    if action == "root":
+        await edit_or_send_clean(callback, "Раздел «Аккаунт»:", reply_markup=menu)
+        await callback.answer()
+        return
+
+    if action == "rating":
+        rc = int(user["rating_count"] or 0)
+        ra = float(user["rating_avg"] or 0.0)
+        text = (
+            f"Средний рейтинг: {ra:.1f}\nВсего оценок: {rc}" if rc > 0 else "Пока нет оценок от других пользователей."
+        )
+        await edit_or_send_clean(callback, text, reply_markup=back)
+        await callback.answer()
+        return
+
+    if action == "reviews":
+        rows = repo.list_ratings_received(callback.from_user.id)
+        if not rows:
+            txt = "Пока никто не оставил оценок после поездок."
+        else:
+            lines = []
+            for r in rows[:25]:
+                line = (
+                    f"★ {int(r['stars'])} — от {html.escape(str(r['rater_name']))} | поездка #{r['trip_id']} | "
+                    f"{r['trip_date']} {r['departure_time']}"
+                )
+                rt = r["review_text"]
+                if rt:
+                    line += f"\n   «{html.escape(str(rt))}»"
+                lines.append(line)
+            txt = "Оценки после поездок:\n" + "\n".join(lines)
+            if len(rows) > 25:
+                txt += "\n…"
+        await edit_or_send_clean(callback, txt, reply_markup=back)
+        await callback.answer()
+        return
+
+    if action == "name":
+        un = user["username"]
+        if un:
+            txt = f"Имя в сервисе: {user['name']}\nUsername в Telegram: @{un}"
+        else:
+            txt = f"Имя в сервисе: {user['name']}\nUsername в Telegram: не указан в профиле Telegram."
+        await edit_or_send_clean(callback, txt, reply_markup=back)
+        await callback.answer()
+        return
+
+    if action == "upgrade_driver":
+        if user["role"] != "passenger":
+            await callback.answer("Ты уже водитель.", show_alert=True)
+            return
+        await state.set_state(AccountUpgrade.waiting_dl_series)
+        await edit_or_send_clean(
+            callback,
+            "Стать водителем: проверка формата ВУ (без запросов в ГИБДД).\n\n"
+            "Введи серию и номер как на пластиковом бланке: 4 цифры, 2 буквы "
+            "(А, В, Е, К, М, Н, О, Р, С, Т, У, Х), 6 цифр. Можно с пробелами — например 9916 АВ 123456.",
+            reply_markup=flow_keyboard(),
+        )
+        await callback.answer()
+        return
+
+    await callback.answer()
+
+
+@router.message(AccountUpgrade.waiting_dl_series)
+async def account_upgrade_dl_series(message: Message, state: FSMContext) -> None:
+    ok, normalized, err = normalize_dl_series_number(message.text or "")
+    if not ok:
+        await send_clean_message(message, err or "Некорректные данные ВУ.")
+        return
+    await state.update_data(dl_series_number=normalized)
+    await state.set_state(AccountUpgrade.waiting_dl_expiry)
+    await send_clean_message(
+        message,
+        "Введи дату окончания срока действия ВУ (поле «3b») в формате ДД.ММ.ГГГГ.",
+        reply_markup=flow_keyboard(),
+    )
+
+
+@router.message(AccountUpgrade.waiting_dl_expiry)
+async def account_upgrade_dl_expiry(message: Message, state: FSMContext, repo: Repo) -> None:
+    ok, expiry_date, err = parse_expiry_date(message.text or "")
+    if not ok or not expiry_date:
+        await send_clean_message(message, err or "Некорректная дата.")
+        return
+    ok_exp, msg_exp = validate_license_not_expired(expiry_date)
+    if not ok_exp:
+        await send_clean_message(message, msg_exp or "ВУ недействительно.")
+        return
+    user = repo.get_user(message.from_user.id)
+    if not user or user["role"] != "passenger":
+        await send_clean_message(message, "Сессия устарела или роль уже изменена.")
+        await state.clear()
+        return
+    data = await state.get_data()
+    dl_series = data.get("dl_series_number")
+    if not dl_series:
+        await send_clean_message(message, "Сначала введи серию и номер ВУ.")
+        await state.set_state(AccountUpgrade.waiting_dl_series)
+        return
+    try:
+        repo.upsert_user(
+            message.from_user.id,
+            str(user["name"]),
+            message.from_user.username,
+            "driver",
+            dl_series_number=str(dl_series),
+            dl_valid_until=expiry_date.isoformat(),
+        )
+    except ValueError as exc:
+        await send_clean_message(message, str(exc))
+        return
+    await state.clear()
+    await send_clean_message(
+        message,
+        "Ты зарегистрирован как водитель. Формат ВУ проверен локально.\n"
+        "В меню доступны создание поездок и раздел «Управление».",
+        reply_markup=main_keyboard(repo, message.from_user.id),
+    )
 
 
 @router.message(F.text.in_(["Найти поездки"]))
@@ -470,8 +783,8 @@ async def search_pick_end_admin(callback: CallbackQuery, state: FSMContext, repo
 
 
 @router.callback_query(F.data.startswith("Stp:"))
-async def search_pick_end_stop(callback: CallbackQuery, state: FSMContext) -> None:
-    await FLOW_ORCHESTRATOR.pick_end_stop(callback, state, mode="search")
+async def search_pick_end_stop(callback: CallbackQuery, state: FSMContext, repo: Repo) -> None:
+    await FLOW_ORCHESTRATOR.pick_end_stop(callback, state, repo, mode="search")
 
 
 @router.callback_query(F.data.startswith("book:"))
@@ -491,12 +804,19 @@ async def book_trip(callback, repo: Repo) -> None:
         await callback.answer(str(exc), show_alert=True)
         return
 
-    trip = repo.find_open_trips()
-    trip_item = next((item for item in trip if item["id"] == trip_id), None)
-    await edit_or_send_clean(callback, f"Бронь #{booking_id} создана.", reply_markup=main_keyboard())
+    trip_item = repo.get_trip_public_card(trip_id)
+    await edit_or_send_clean(
+        callback,
+        f"Бронь #{booking_id} создана.\n\nДобавить этот маршрут в избранное?",
+        reply_markup=add_favorite_keyboard(trip_id),
+    )
+    sent = await callback.message.answer(
+        "Готово — ниже клавиатура меню.",
+        reply_markup=main_keyboard(repo, callback.from_user.id),
+    )
+    await track_bot_message(sent)
     if trip_item:
         driver_internal_id = trip_item["driver_id"]
-        # Ищем tg id водителя через вспомогательный запрос.
         with repo.db.transaction() as conn:
             drow = conn.execute(
                 "SELECT tg_user_id FROM users WHERE id = ?",
@@ -505,16 +825,75 @@ async def book_trip(callback, repo: Repo) -> None:
         if drow:
             try:
                 await callback.bot.send_message(
-                    drow["tg_user_id"],
+                    int(drow["tg_user_id"]),
                     (
                         "Новая бронь на вашу поездку.\n"
                         f"Trip #{trip_id} | {trip_item['start_title']} -> {trip_item['end_title']} | "
                         f"{format_trip_when(trip_item['trip_date'], trip_item['departure_time'], trip_item['time_slot'])}"
                     ),
+                    reply_markup=add_favorite_keyboard(trip_id),
                 )
             except Exception as err:
                 logger.warning("Driver notify failed: %s", err)
     await callback.answer("Забронировано")
+
+
+@router.callback_query(F.data.startswith("fav_add:"))
+async def fav_add(callback: CallbackQuery, repo: Repo) -> None:
+    if not repo.get_user(callback.from_user.id):
+        await callback.answer("Сначала /start.", show_alert=True)
+        return
+    tid = int(callback.data.split(":")[1])
+    try:
+        added = repo.add_favorite_from_trip(callback.from_user.id, tid)
+    except ValueError:
+        await callback.answer("Поездка не найдена.", show_alert=True)
+        return
+    await callback.answer("Маршрут добавлен в избранное" if added else "Этот маршрут уже в избранном")
+
+
+@router.callback_query(F.data.startswith("fav_route:"))
+async def favorite_route_pick_date(callback: CallbackQuery, state: FSMContext, repo: Repo) -> None:
+    fid = int(callback.data.split(":")[1])
+    row = repo.get_favorite_route_owned(callback.from_user.id, fid)
+    if not row:
+        await callback.answer("Маршрут не найден.", show_alert=True)
+        return
+    await state.set_state(TripSearch.trip_date)
+    await state.update_data(
+        start_point=int(row["start_point_id"]),
+        end_point=int(row["end_point_id"]),
+        calendar_target="search",
+    )
+    await edit_or_send_clean(
+        callback,
+        f"{row['start_title']} → {row['end_title']}\nВыбери дату поездки:",
+        reply_markup=add_back_button(await trip_calendar().start_calendar(), "menu"),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("rate:"))
+async def submit_trip_rating_callback(callback: CallbackQuery, state: FSMContext, repo: Repo) -> None:
+    parsed = parse_rate_callback_data(callback.data or "")
+    if not parsed:
+        await callback.answer("Некорректные данные кнопки.", show_alert=True)
+        return
+    trip_id, rated_tg, stars = parsed
+    if callback.message is None:
+        await callback.answer()
+        return
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except TelegramBadRequest:
+        pass
+    prompt = await callback.message.answer(
+        f"Оценка {stars}★.\nОтветь на это сообщение: короткий комментарий (до {MAX_REVIEW_CHARS} символов) "
+        "или отправь «-» без текста.",
+        reply_markup=ForceReply(input_field_placeholder="Комментарий или -"),
+    )
+    await state.update_data(rating_review_collect=(trip_id, rated_tg, stars, prompt.message_id))
+    await callback.answer()
 
 
 @router.message(F.text == "Создать поездку")
@@ -565,12 +944,18 @@ async def create_pick_end_admin(callback: CallbackQuery, state: FSMContext, repo
 
 
 @router.callback_query(F.data.startswith("Ctp:"))
-async def create_pick_end_stop(callback: CallbackQuery, state: FSMContext) -> None:
-    await FLOW_ORCHESTRATOR.pick_end_stop(callback, state, mode="create")
+async def create_pick_end_stop(callback: CallbackQuery, state: FSMContext, repo: Repo) -> None:
+    await FLOW_ORCHESTRATOR.pick_end_stop(callback, state, repo, mode="create")
 
 
 @router.callback_query(F.data.startswith("create_time:"))
-async def create_set_time(callback: CallbackQuery, state: FSMContext) -> None:
+async def create_set_time(callback: CallbackQuery, state: FSMContext, repo: Repo) -> None:
+    data = await state.get_data()
+    if "trip_date" not in data:
+        await edit_or_send_clean(callback, STALE_CREATE_FLOW, reply_markup=main_keyboard(repo, callback.from_user.id))
+        await state.clear()
+        await callback.answer()
+        return
     departure_time = callback.data.split(":", 1)[1]
     await state.update_data(departure_time=departure_time)
     await state.set_state(TripCreate.seats)
@@ -583,8 +968,18 @@ async def create_set_time(callback: CallbackQuery, state: FSMContext) -> None:
 
 
 @router.callback_query(F.data.startswith("create_seats:"))
-async def create_set_seats(callback: CallbackQuery, state: FSMContext) -> None:
-    seats = int(callback.data.split(":", 1)[1])
+async def create_set_seats(callback: CallbackQuery, state: FSMContext, repo: Repo) -> None:
+    data = await state.get_data()
+    if "trip_date" not in data or "departure_time" not in data:
+        await edit_or_send_clean(callback, STALE_CREATE_FLOW, reply_markup=main_keyboard(repo, callback.from_user.id))
+        await state.clear()
+        await callback.answer()
+        return
+    try:
+        seats = int(callback.data.split(":", 1)[1])
+    except (ValueError, IndexError):
+        await callback.answer("Некорректные данные кнопки.", show_alert=True)
+        return
     if seats < 2 or seats > 4:
         await edit_or_send_clean(
             callback,
@@ -601,7 +996,11 @@ async def create_set_seats(callback: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(F.data.startswith("create_price:"))
 async def create_set_price(callback: CallbackQuery, state: FSMContext, repo: Repo) -> None:
-    price = int(callback.data.split(":", 1)[1])
+    try:
+        price = int(callback.data.split(":", 1)[1])
+    except (ValueError, IndexError):
+        await callback.answer("Некорректные данные кнопки.", show_alert=True)
+        return
     if price not in (100, 150, 200):
         await edit_or_send_clean(
             callback,
@@ -611,6 +1010,12 @@ async def create_set_price(callback: CallbackQuery, state: FSMContext, repo: Rep
         await callback.answer()
         return
     data = await state.get_data()
+    required_keys = ("start_point", "end_point", "trip_date", "departure_time", "seats")
+    if any(k not in data or data[k] is None for k in required_keys):
+        await edit_or_send_clean(callback, STALE_CREATE_FLOW, reply_markup=main_keyboard(repo, callback.from_user.id))
+        await state.clear()
+        await callback.answer()
+        return
     try:
         trip_id = repo.create_trip(
             tg_driver_id=callback.from_user.id,
@@ -622,13 +1027,17 @@ async def create_set_price(callback: CallbackQuery, state: FSMContext, repo: Rep
             price_rub=price,
         )
     except ValueError as exc:
-        await edit_or_send_clean(callback, str(exc), reply_markup=main_keyboard())
+        await edit_or_send_clean(callback, str(exc), reply_markup=main_keyboard(repo, callback.from_user.id))
         await state.clear()
         await callback.answer()
         return
 
     await state.clear()
-    await edit_or_send_clean(callback, f"Поездка #{trip_id} создана и доступна для поиска.", reply_markup=main_keyboard())
+    await edit_or_send_clean(
+        callback,
+        f"Поездка #{trip_id} создана и доступна для поиска.",
+        reply_markup=main_keyboard(repo, callback.from_user.id),
+    )
     await callback.answer()
 
 
@@ -676,7 +1085,16 @@ async def cancel_booking_reason(message: Message, state: FSMContext, repo: Repo)
         await send_clean_message(message, "Причина слишком короткая. Укажи подробнее.")
         return
     data = await state.get_data()
-    booking_id = int(data["booking_id"])
+    booking_id_raw = data.get("booking_id")
+    if booking_id_raw is None:
+        await send_clean_message(
+            message,
+            "Сессия отмены брони устарела. Открой «Мои брони» и выбери отмену снова.",
+            reply_markup=main_keyboard(repo, message.from_user.id),
+        )
+        await state.clear()
+        return
+    booking_id = int(booking_id_raw)
     try:
         _, payload = repo.cancel_booking_by_passenger(message.from_user.id, booking_id, reason)
     except ValueError as exc:
@@ -684,7 +1102,7 @@ async def cancel_booking_reason(message: Message, state: FSMContext, repo: Repo)
         await state.clear()
         return
     await state.clear()
-    await send_clean_message(message, f"Бронь #{booking_id} отменена.", reply_markup=main_keyboard())
+    await send_clean_message(message, f"Бронь #{booking_id} отменена.", reply_markup=main_keyboard(repo, message.from_user.id))
     try:
         await message.bot.send_message(
             payload["driver_tg_user_id"],
@@ -699,7 +1117,7 @@ async def cancel_booking_reason(message: Message, state: FSMContext, repo: Repo)
         logger.warning("Driver cancel notify failed: %s", err)
 
 
-@router.message(F.text == "Мои поездки")
+@router.message(F.text == "История поездок")
 async def my_trips(message: Message, repo: Repo) -> None:
     user = repo.get_user(message.from_user.id)
     if not user:
@@ -709,7 +1127,7 @@ async def my_trips(message: Message, repo: Repo) -> None:
     if not trips:
         await send_clean_message(message, "У тебя пока нет созданных поездок.")
         return
-    lines = ["Твои поездки:"]
+    lines = ["История поездок:"]
     for t in trips:
         free = t["seats_total"] - t["seats_booked"]
         lines.append(
@@ -719,44 +1137,176 @@ async def my_trips(message: Message, repo: Repo) -> None:
     await send_clean_message(message, "\n".join(lines))
 
 
-@router.message(F.text == "ВРЕМЕННО: Все поездки (debug)")
-async def all_trips_debug(message: Message, repo: Repo) -> None:
-    trips = repo.list_all_trips_for_debug()
-    if not trips:
-        await send_clean_message(message, "Пока нет ни одной созданной поездки.")
+@router.message(F.text == "Управление")
+async def driver_manage_entry(message: Message, repo: Repo) -> None:
+    user = repo.get_user(message.from_user.id)
+    if not user:
+        await send_clean_message(message, "Сначала зарегистрируйся через /start.")
         return
-    lines = ["[Временная debug-выдача] Все созданные поездки:"]
-    for t in trips:
-        free = t["seats_total"] - t["seats_booked"]
-        lines.append(
-            f"#{t['id']} | {t['driver_name']} | {t['start_title']} -> {t['end_title']} | "
-            f"{format_trip_row(t)} | {t['price_rub']} руб | свободно {free}/{t['seats_total']} | {t['status']}"
-        )
-    open_trips = [t for t in trips if t["status"] == "open" and t["seats_booked"] < t["seats_total"]]
-    if open_trips:
+    if user["role"] != "driver":
+        await send_clean_message(message, "Раздел «Управление» только для водителей.")
+        return
+    open_trips = [t for t in repo.list_driver_trips(message.from_user.id) if t["status"] == "open"]
+    cur = user["min_passenger_rating"] if "min_passenger_rating" in user.keys() else None
+    thr_line = (
+        f"Авто-отказ новым броням: средний рейтинг пассажира ниже {float(cur):.1f} "
+        f"(только если у него уже есть хотя бы одна оценка)."
+        if cur is not None and float(cur) > 0
+        else "Авто-фильтр по рейтингу выключен — новые пользователи без оценок всегда могут бронировать."
+    )
+    if not open_trips:
         await send_clean_message(
             message,
-            "\n".join(lines) + "\n\nНиже кнопки быстрой debug-брони:",
-            reply_markup=debug_book_keyboard(open_trips[:20]),
+            f"{thr_line}\n\nОткрытых поездок нет. Ниже можно задать порог рейтинга для будущих броней.",
+            reply_markup=driver_rating_threshold_keyboard(),
         )
-    else:
-        await send_clean_message(message, "\n".join(lines) + "\n\nНет открытых поездок для брони.")
+        return
+    await send_clean_message(
+        message,
+        f"{thr_line}\n\nОткрытые поездки — выбери для просмотра броней или отмены поездки:",
+        reply_markup=driver_manage_root_keyboard(open_trips),
+    )
 
 
-@router.callback_query(F.data.startswith("debug_book:"))
-async def debug_book_trip(callback: CallbackQuery, repo: Repo) -> None:
-    trip_id = int(callback.data.split(":", 1)[1])
+@router.callback_query(F.data.startswith("manage_trip:"))
+async def driver_manage_trip_detail(callback: CallbackQuery, repo: Repo) -> None:
+    try:
+        trip_id = int(callback.data.split(":", 1)[1])
+    except (ValueError, IndexError):
+        await callback.answer("Некорректные данные.", show_alert=True)
+        return
     user = repo.get_user(callback.from_user.id)
-    if not user:
-        await callback.answer("Сначала зарегистрируйся через /start.", show_alert=True)
+    if not user or user["role"] != "driver":
+        await callback.answer("Только для водителя.", show_alert=True)
+        return
+    trips = repo.list_driver_trips(callback.from_user.id)
+    trip = next((t for t in trips if int(t["id"]) == trip_id), None)
+    if not trip or trip["status"] != "open":
+        await callback.answer("Поездка недоступна.", show_alert=True)
+        return
+    bookings = repo.list_bookings_for_driver_trip(callback.from_user.id, trip_id)
+    free = int(trip["seats_total"]) - int(trip["seats_booked"])
+    lines = [
+        f"Поездка #{trip_id}: {trip['start_title']} → {trip['end_title']}",
+        format_trip_when(trip["trip_date"], trip["departure_time"], trip["time_slot"]),
+        f"{trip['price_rub']} руб | свободно {free}/{trip['seats_total']}",
+        "",
+        "Активные брони:",
+    ]
+    if not bookings:
+        lines.append("пока никто не забронировал.")
+    else:
+        for b in bookings:
+            lines.append(f"— {b['passenger_name']}, рейтинг: {_passenger_rating_hint(b)}")
+    await edit_or_send_clean(
+        callback,
+        "\n".join(lines),
+        reply_markup=driver_trip_detail_keyboard(trip_id, list(bookings)),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "thr_menu")
+async def driver_thr_menu(callback: CallbackQuery, repo: Repo) -> None:
+    user = repo.get_user(callback.from_user.id)
+    if not user or user["role"] != "driver":
+        await callback.answer("Только для водителя.", show_alert=True)
+        return
+    cur = user["min_passenger_rating"] if "min_passenger_rating" in user.keys() else None
+    text_cur = (
+        f"Сейчас: новая бронь отклоняется автоматически, если у пассажира уже есть оценки "
+        f"и средний балл ниже {float(cur):.1f}."
+        if cur is not None and float(cur) > 0
+        else "Сейчас: автоматический отказ по рейтингу выключен."
+    )
+    await edit_or_send_clean(
+        callback,
+        f"{text_cur}\n\nБез ни одной оценки пассажир всё равно может забронировать место.",
+        reply_markup=driver_rating_threshold_keyboard(),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("thr_set:"))
+async def driver_thr_set(callback: CallbackQuery, repo: Repo) -> None:
+    user = repo.get_user(callback.from_user.id)
+    if not user or user["role"] != "driver":
+        await callback.answer("Только для водителя.", show_alert=True)
+        return
+    raw = callback.data.split(":", 1)[1]
+    try:
+        if raw == "off":
+            repo.set_driver_min_passenger_rating(callback.from_user.id, None)
+        else:
+            repo.set_driver_min_passenger_rating(callback.from_user.id, float(raw))
+    except ValueError as exc:
+        await callback.answer(str(exc), show_alert=True)
+        return
+    await edit_or_send_clean(callback, "Настройка сохранена.", reply_markup=main_keyboard(repo, callback.from_user.id))
+    await callback.answer("Готово")
+
+
+@router.callback_query(F.data.startswith("reject_bk:"))
+async def driver_reject_booking(callback: CallbackQuery, repo: Repo) -> None:
+    try:
+        booking_id = int(callback.data.split(":", 1)[1])
+    except (ValueError, IndexError):
+        await callback.answer("Ошибка данных.", show_alert=True)
+        return
+    user = repo.get_user(callback.from_user.id)
+    if not user or user["role"] != "driver":
+        await callback.answer("Только для водителя.", show_alert=True)
         return
     try:
-        booking_id = repo.create_booking(callback.from_user.id, trip_id)
+        payload = repo.reject_booking_by_driver(callback.from_user.id, booking_id)
     except ValueError as exc:
-        # Не редактируем сообщение с inline-кнопками, чтобы они не пропадали.
-        await callback.answer(f"[DEBUG] Не удалось забронировать: {exc}", show_alert=True)
+        await callback.answer(str(exc), show_alert=True)
         return
-    await callback.answer(f"[DEBUG] Бронь #{booking_id} создана для поездки #{trip_id}.", show_alert=True)
+    await edit_or_send_clean(callback, "Бронь отклонена, место снова доступно.", reply_markup=main_keyboard(repo, callback.from_user.id))
+    await callback.answer("Отклонено")
+    try:
+        await callback.bot.send_message(
+            int(payload["passenger_tg_user_id"]),
+            (
+                "Водитель отклонил твою бронь.\n"
+                f"Trip #{payload['trip_id']} | {payload['start_title']} → {payload['end_title']} | "
+                f"{format_trip_when(payload.get('trip_date'), payload.get('departure_time'), payload.get('time_slot'))}"
+            ),
+        )
+    except Exception as err:
+        logger.warning("Passenger notify reject: %s", err)
+
+
+@router.callback_query(F.data.startswith("cancel_trip:"))
+async def driver_cancel_trip(callback: CallbackQuery, repo: Repo) -> None:
+    try:
+        trip_id = int(callback.data.split(":", 1)[1])
+    except (ValueError, IndexError):
+        await callback.answer("Ошибка данных.", show_alert=True)
+        return
+    user = repo.get_user(callback.from_user.id)
+    if not user or user["role"] != "driver":
+        await callback.answer("Только для водителя.", show_alert=True)
+        return
+    try:
+        passenger_tg_ids = repo.cancel_trip_by_driver(callback.from_user.id, trip_id)
+    except ValueError as exc:
+        await callback.answer(str(exc), show_alert=True)
+        return
+    await edit_or_send_clean(
+        callback,
+        f"Поездка #{trip_id} отменена. Пассажиры с активной бронью уведомлены.",
+        reply_markup=main_keyboard(repo, callback.from_user.id),
+    )
+    await callback.answer("Поездка отменена")
+    for tg_uid in passenger_tg_ids:
+        try:
+            await callback.bot.send_message(
+                tg_uid,
+                f"Водитель отменил поездку #{trip_id}. Твоя бронь аннулирована.",
+            )
+        except Exception as err:
+            logger.warning("Passenger notify cancel trip: %s", err)
 
 
 @router.callback_query(SimpleCalendarCallback.filter())
@@ -780,6 +1330,11 @@ async def process_calendar_selection(
     target = data.get("calendar_target")
 
     if target == "search":
+        if "start_point" not in data or "end_point" not in data:
+            await state.clear()
+            await edit_or_send_clean(callback, STALE_SEARCH_FLOW, reply_markup=main_keyboard(repo, callback.from_user.id))
+            await callback.answer()
+            return
         await state.update_data(trip_date=iso_date)
         trips = repo.find_open_trips(
             start_point_id=data.get("start_point"),
@@ -788,7 +1343,7 @@ async def process_calendar_selection(
         )
         await state.clear()
         if not trips:
-            await edit_or_send_clean(callback, "Подходящих поездок пока нет.", reply_markup=main_keyboard())
+            await edit_or_send_clean(callback, "Подходящих поездок пока нет.", reply_markup=main_keyboard(repo, callback.from_user.id))
             await callback.answer()
             return
         text_lines = ["Доступные поездки:"]
@@ -804,6 +1359,11 @@ async def process_calendar_selection(
         return
 
     if target == "create":
+        if "start_point" not in data or "end_point" not in data:
+            await state.clear()
+            await edit_or_send_clean(callback, STALE_CREATE_FLOW, reply_markup=main_keyboard(repo, callback.from_user.id))
+            await callback.answer()
+            return
         await state.update_data(trip_date=iso_date)
         await state.set_state(TripCreate.departure_time)
         await edit_or_send_clean(
@@ -823,7 +1383,7 @@ async def process_calendar_selection(
             return
         _, msg = repo.switch_role(callback.from_user.id, str(target_role), iso_date)
         await state.clear()
-        await edit_or_send_clean(callback, msg, reply_markup=main_keyboard())
+        await edit_or_send_clean(callback, msg, reply_markup=main_keyboard(repo, callback.from_user.id))
         await callback.answer()
         return
 
@@ -835,26 +1395,90 @@ async def go_back(callback: CallbackQuery, state: FSMContext, repo: Repo) -> Non
     await NAVIGATION_FLOW.handle_callback_back(callback, state, repo)
 
 
+@router.message(F.text == "⬅ Назад", StateFilter(AccountUpgrade.waiting_dl_expiry))
+async def account_upgrade_back_from_expiry(message: Message, state: FSMContext) -> None:
+    await state.set_state(AccountUpgrade.waiting_dl_series)
+    await send_clean_message(
+        message,
+        "Введи серию и номер ВУ как на пластиковом бланке.",
+        reply_markup=flow_keyboard(),
+    )
+
+
+@router.message(F.text == "⬅ Назад", StateFilter(AccountUpgrade.waiting_dl_series))
+async def account_upgrade_back_from_series(message: Message, state: FSMContext, repo: Repo) -> None:
+    await state.clear()
+    user = repo.get_user(message.from_user.id)
+    if not user:
+        await send_clean_message(message, "Сначала зарегистрируйся через /start.")
+        return
+    await send_clean_message(
+        message,
+        "Раздел «Аккаунт»:",
+        reply_markup=account_kb_menu(show_become_driver=user["role"] == "passenger"),
+    )
+
+
 @router.message(F.text == "⬅ Назад")
 async def go_back_keyboard(message: Message, state: FSMContext, repo: Repo) -> None:
     await NAVIGATION_FLOW.handle_reply_back(message, state, repo)
 
 
+@router.message(RatingReviewReplyFilter())
+async def complete_trip_rating_review(
+    message: Message,
+    state: FSMContext,
+    repo: Repo,
+    rating_completion: tuple[int, int, int],
+) -> None:
+    trip_id, rated_tg, stars = rating_completion
+    svc = RatingService(repo)
+    try:
+        svc.submit(message.from_user.id, trip_id, rated_tg, stars, message.text)
+    except ValueError as exc:
+        await state.update_data(rating_review_collect=None)
+        await message.answer(str(exc))
+        return
+    await state.update_data(rating_review_collect=None)
+    await message.answer("Спасибо, оценка сохранена.")
+
+
 @router.message()
-async def fallback(message: Message) -> None:
-    await send_clean_message(message, "Используй кнопки меню или /start для регистрации.", reply_markup=main_keyboard())
+async def fallback(message: Message, repo: Repo) -> None:
+    await send_clean_message(
+        message,
+        "Используй кнопки меню или /start для регистрации.",
+        reply_markup=main_keyboard(repo, message.from_user.id),
+    )
 
 
 async def run() -> None:
+    global _REPO_FOR_KB
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     settings = load_settings()
     db = Database(settings.db_path)
     db.init_schema()
     repo = Repo(db)
+    _REPO_FOR_KB = repo
+    CHAT_UI.attach_database(db)
 
     bot = Bot(token=settings.bot_token)
     dp = Dispatcher()
     dp["repo"] = repo
     dp.include_router(router)
+
+    # Снимает webhook, если он был включён — иначе polling конфликтует с доставкой через URL.
+    await bot.delete_webhook(drop_pending_updates=False)
+
+    async def rating_prompt_loop() -> None:
+        await asyncio.sleep(45)
+        while True:
+            try:
+                await process_pending_rating_prompts(bot, repo)
+            except Exception:
+                logger.exception("rating_prompt_loop")
+            await asyncio.sleep(180)
+
+    asyncio.create_task(rating_prompt_loop())
 
     await dp.start_polling(bot)

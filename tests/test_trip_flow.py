@@ -55,6 +55,11 @@ class _FakeRepo:
     def list_stops(self, _locality, _district, _admin_area):
         return [{"id": 10, "title": "Stop"}]
 
+    def get_point(self, point_id: int):
+        if point_id == 77:
+            return {"locality": "A", "district": "D1", "admin_area": "Center", "title": "End"}
+        return None
+
 
 class TripFlowOrchestratorTests(IsolatedAsyncioTestCase):
     def _build_orchestrator(self):
@@ -151,6 +156,7 @@ class TripFlowOrchestratorTests(IsolatedAsyncioTestCase):
     async def test_pick_locality_updates_end_state(self) -> None:
         orchestrator, _, edit_or_send_clean = self._build_orchestrator()
         state = _FakeState()
+        state.data["start_point"] = 999
         callback = _FakeCallback("Stl:1")
         repo = _FakeRepo()
 
@@ -164,9 +170,16 @@ class TripFlowOrchestratorTests(IsolatedAsyncioTestCase):
     async def test_pick_end_stop_sets_trip_date_and_calendar_target(self) -> None:
         orchestrator, _, edit_or_send_clean = self._build_orchestrator()
         state = _FakeState()
+        state.data.update(
+            start_point=1,
+            end_locality="A",
+            end_district="D1",
+            end_admin_area="Center",
+        )
         callback = _FakeCallback("Ctp:77")
+        repo = _FakeRepo()
 
-        await orchestrator.pick_end_stop(callback=callback, state=state, mode="create")
+        await orchestrator.pick_end_stop(callback=callback, state=state, repo=repo, mode="create")
 
         self.assertEqual(state.data["end_point"], 77)
         self.assertEqual(state.data["calendar_target"], "create")

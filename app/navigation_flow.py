@@ -46,7 +46,9 @@ class NavigationFlow:
 
         if target == "menu":
             await state.clear()
-            await self._edit_or_send_clean(callback, "Главное меню", reply_markup=self._main_keyboard())
+            await self._edit_or_send_clean(
+                callback, "Главное меню", reply_markup=self._main_keyboard(repo, callback.from_user.id)
+            )
             await callback.answer()
             return
 
@@ -57,7 +59,7 @@ class NavigationFlow:
                 await self._edit_or_send_clean(
                     callback,
                     "Сначала зарегистрируйся через /start.",
-                    reply_markup=self._main_keyboard(),
+                    reply_markup=self._main_keyboard(repo, callback.from_user.id),
                 )
                 await callback.answer()
                 return
@@ -301,20 +303,21 @@ class NavigationFlow:
     async def handle_reply_back(self, message: Any, state: Any, repo: Any) -> None:
         current = await state.get_state()
         data = await state.get_data()
+        tg_uid = message.from_user.id if getattr(message, "from_user", None) else 0
         if not current:
-            await self._send_clean_message(message, "Главное меню", reply_markup=self._main_keyboard())
+            await self._send_clean_message(message, "Главное меню", reply_markup=self._main_keyboard(repo, tg_uid))
             return
 
         is_search = "TripSearch" in current
         is_create = "TripCreate" in current
         if not (is_search or is_create):
             await state.clear()
-            await self._send_clean_message(message, "Главное меню", reply_markup=self._main_keyboard())
+            await self._send_clean_message(message, "Главное меню", reply_markup=self._main_keyboard(repo, tg_uid))
             return
 
         if current.endswith("start_locality"):
             await state.clear()
-            await self._send_clean_message(message, "Главное меню", reply_markup=self._main_keyboard())
+            await self._send_clean_message(message, "Главное меню", reply_markup=self._main_keyboard(repo, tg_uid))
             return
 
         if current.endswith("start_district"):
@@ -472,4 +475,4 @@ class NavigationFlow:
             return
 
         await state.clear()
-        await self._send_clean_message(message, "Главное меню", reply_markup=self._main_keyboard())
+        await self._send_clean_message(message, "Главное меню", reply_markup=self._main_keyboard(repo, tg_uid))
