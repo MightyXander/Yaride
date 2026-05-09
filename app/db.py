@@ -40,8 +40,6 @@ class Database:
                     role TEXT CHECK(role IN ('driver', 'passenger')) NOT NULL,
                     driver_license_number TEXT,
                     driver_license_valid_until TEXT,
-                    didit_session_id TEXT,
-                    didit_verification_status TEXT,
                     phone TEXT,
                     rating_avg REAL NOT NULL DEFAULT 0.0,
                     rating_count INTEGER NOT NULL DEFAULT 0,
@@ -107,10 +105,6 @@ class Database:
             conn.execute("ALTER TABLE users ADD COLUMN driver_license_number TEXT")
         if "driver_license_valid_until" not in user_columns:
             conn.execute("ALTER TABLE users ADD COLUMN driver_license_valid_until TEXT")
-        if "didit_session_id" not in user_columns:
-            conn.execute("ALTER TABLE users ADD COLUMN didit_session_id TEXT")
-        if "didit_verification_status" not in user_columns:
-            conn.execute("ALTER TABLE users ADD COLUMN didit_verification_status TEXT")
 
     def _migrate_route_points_schema(self, conn: sqlite3.Connection) -> None:
         row = conn.execute(

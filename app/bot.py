@@ -21,7 +21,6 @@ from aiogram_calendar.schemas import SimpleCalAct
 from app.chat_ui import ChatUiService
 from app.config import load_settings
 from app.db import Database
-from app.didit import DiditClient
 from app.formatting import format_trip_row, format_trip_when
 from app.navigation_flow import NavigationFlow
 from app.repo import Repo
@@ -190,7 +189,8 @@ def trip_calendar() -> YarideCalendar:
 class Registration(StatesGroup):
     waiting_name = State()
     waiting_role = State()
-    waiting_driver_kyc = State()
+    waiting_driver_license_number = State()
+    waiting_driver_license_valid_until = State()
     waiting_role_switch_date = State()
 
 
@@ -286,15 +286,6 @@ def debug_book_keyboard(trips: list) -> InlineKeyboardMarkup:
 
 def cancel_booking_keyboard(bookings: list) -> InlineKeyboardMarkup:
     return KEYBOARDS.cancel_booking_keyboard(bookings)
-
-
-def didit_kyc_keyboard(verification_url: str, session_id: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="Пройти KYC в Didit", url=verification_url)],
-            [InlineKeyboardButton(text="Проверить статус KYC", callback_data=f"didit_kyc_check:{session_id}")],
-        ]
-    )
 
 
 async def track_bot_message(message: Message) -> None:
@@ -416,7 +407,7 @@ async def reg_name(message: Message, state: FSMContext) -> None:
 
 
 @router.callback_query(F.data.startswith("set_role:"))
-async def reg_role(callback, state: FSMContext, repo: Repo, didit_client: DiditClient | None = None) -> None:
+async def reg_role(callback, state: FSMContext, repo: Repo) -> None:
     role = callback.data.split(":", 1)[1]
     data = await state.get_data()
     name = data.get("name")
@@ -426,36 +417,13 @@ async def reg_role(callback, state: FSMContext, repo: Repo, didit_client: DiditC
         await callback.answer()
         return
     if role == "driver":
-        if didit_client is None:
-            await edit_or_send_clean(
-                callback,
-                "KYC сервис временно недоступен. Обратись к администратору.",
-                reply_markup=main_keyboard(),
-            )
-            await callback.answer()
-            return
-        try:
-            session = await didit_client.create_session(vendor_data=str(callback.from_user.id))
-        except RuntimeError as exc:
-            await edit_or_send_clean(
-                callback,
-                f"Не удалось запустить KYC верификацию: {exc}",
-                reply_markup=main_keyboard(),
-            )
-            await callback.answer()
-            return
-        await state.update_data(
-            role=role,
-            didit_session_id=session["session_id"],
-            didit_session_url=session["url"],
-        )
-        await state.set_state(Registration.waiting_driver_kyc)
+        await state.update_data(role=role)
+        await state.set_state(Registration.waiting_driver_license_number)
         await edit_or_send_clean(
             callback,
-            "Для роли водителя пройди KYC в Didit по ссылке ниже, затем нажми «Проверить KYC».",
-            reply_markup=didit_pending_keyboard(session["session_id"], session["url"]),
+            "Для роли водителя укажи номер водительского удостоверения.",
         )
-        await callback.answer("Сессия KYC создана")
+        await callback.answer()
         return
 
     repo.upsert_user(callback.from_user.id, str(name), callback.from_user.username, role)
@@ -469,69 +437,54 @@ async def reg_role(callback, state: FSMContext, repo: Repo, didit_client: DiditC
     await callback.answer("Роль сохранена")
 
 
-def didit_pending_keyboard(session_id: str, session_url: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="Открыть KYC", url=session_url)],
-            [InlineKeyboardButton(text="Проверить KYC", callback_data=f"didit_check_status:{session_id}")],
-            [InlineKeyboardButton(text="Отмена", callback_data="back:menu")],
-        ]
+@router.message(Registration.waiting_driver_license_number)
+async def reg_driver_license_number(message: Message, state: FSMContext) -> None:
+    license_number = (message.text or "").strip()
+    if len(license_number) < 5:
+        await send_clean_message(message, "Номер прав слишком короткий. Введи корректный номер.")
+        return
+    await state.update_data(driver_license_number=license_number)
+    await state.set_state(Registration.waiting_driver_license_valid_until)
+    await send_clean_message(
+        message,
+        "Укажи срок действия прав в формате ГГГГ-ММ-ДД (например, 2030-12-31).",
     )
 
 
-@router.callback_query(F.data.startswith("didit_check_status:"))
-async def didit_check_status(
-    callback: CallbackQuery,
-    state: FSMContext,
-    repo: Repo,
-    didit_client: DiditClient | None = None,
-) -> None:
-    if didit_client is None:
-        await callback.answer("KYC сервис не настроен.", show_alert=True)
-        return
-
-    state_data = await state.get_data()
-    name = state_data.get("name")
-    session_id = str(state_data.get("didit_session_id", "")).strip()
-    session_url = str(state_data.get("didit_session_url", "")).strip()
-    callback_session_id = callback.data.split(":", 1)[1]
-
-    if not name or not session_id or session_id != callback_session_id:
-        await state.clear()
-        await edit_or_send_clean(callback, "Сессия KYC устарела. Нажми /start.")
-        await callback.answer()
-        return
-
+@router.message(Registration.waiting_driver_license_valid_until)
+async def reg_driver_license_valid_until(message: Message, state: FSMContext, repo: Repo) -> None:
+    date_text = (message.text or "").strip()
     try:
-        status = await didit_client.get_session_status(session_id)
-    except RuntimeError as exc:
-        await callback.answer(f"KYC недоступен: {exc}", show_alert=True)
+        valid_until = datetime.strptime(date_text, "%Y-%m-%d").date()
+    except ValueError:
+        await send_clean_message(message, "Некорректный формат даты. Используй ГГГГ-ММ-ДД.")
+        return
+    if valid_until < datetime.now().date():
+        await send_clean_message(message, "Срок действия прав уже истёк. Укажи валидные права.")
         return
 
-    if status == "Approved":
-        repo.upsert_user(
-            callback.from_user.id,
-            str(name),
-            callback.from_user.username,
-            "driver",
-            didit_session_id=session_id,
-            didit_verification_status=status,
-        )
+    data = await state.get_data()
+    name = data.get("name")
+    if not name:
         await state.clear()
-        await edit_or_send_clean(
-            callback,
-            "KYC пройдён. Профиль водителя сохранён.",
-            reply_markup=main_keyboard(),
-        )
-        await callback.answer("KYC подтверждён")
+        await send_clean_message(message, "Сессия регистрации устарела. Нажми /start.")
         return
-
-    await edit_or_send_clean(
-        callback,
-        f"Текущий статус KYC: {status}. Заверши проверку и попробуй снова.",
-        reply_markup=didit_pending_keyboard(session_id, session_url),
+    repo.upsert_user(
+        message.from_user.id,
+        str(name),
+        message.from_user.username,
+        "driver",
+        driver_license_number=str(data.get("driver_license_number", "")),
+        driver_license_valid_until=valid_until.isoformat(),
     )
-    await callback.answer()
+    await state.clear()
+    await send_clean_message(
+        message,
+        "Профиль водителя сохранён.\n"
+        "Права подтверждены как действующие.\n"
+        "Условия сервиса: плата покрывает бензин и износ, сервис не является такси.",
+        reply_markup=main_keyboard(),
+    )
 
 
 @router.message(F.text.in_(["Найти поездки"]))
@@ -960,24 +913,10 @@ async def run() -> None:
     db = Database(settings.db_path)
     db.init_schema()
     repo = Repo(db)
-    didit_client = (
-        DiditClient(
-            api_key=settings.didit_api_key,
-            workflow_id=settings.didit_workflow_id,
-            callback_url=settings.didit_callback_url,
-            base_url=settings.didit_base_url,
-        )
-        if settings.didit_enabled
-        else None
-    )
 
     bot = Bot(token=settings.bot_token)
     dp = Dispatcher()
     dp["repo"] = repo
-    dp["didit_client"] = didit_client
     dp.include_router(router)
-    try:
-        await dp.start_polling(bot)
-    finally:
-        if didit_client is not None:
-            await didit_client.close()
+
+    await dp.start_polling(bot)
