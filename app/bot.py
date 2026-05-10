@@ -392,6 +392,41 @@ LOCALITY_GEO_MAX_KM = 150.0
 GEO_SUGGEST_LIMIT = 5
 GEO_SUGGEST_MAX_KM = 85.0
 
+# Сообщение с топом остановок по геолокации (редактируется при повторной отправке гео).
+GEO_SUGGEST_MESSAGE_KEY = "geo_suggest_message_id"
+
+
+async def _delete_message_safe(chat_id: int, message_id: int, bot) -> None:
+    try:
+        await bot.delete_message(chat_id, message_id)
+    except TelegramBadRequest:
+        pass
+
+
+async def _send_or_edit_geo_suggestions(
+    message: Message,
+    prev_mid: int | None,
+    text: str,
+    markup: InlineKeyboardMarkup,
+) -> int:
+    """Обновляет блок подсказок или отправляет новый; без полного cleanup_chat."""
+    bot = message.bot
+    chat_id = message.chat.id
+    if prev_mid is not None:
+        try:
+            await bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=prev_mid,
+                text=text,
+                reply_markup=markup,
+            )
+            return prev_mid
+        except TelegramBadRequest:
+            await _delete_message_safe(chat_id, prev_mid, bot)
+    sent = await message.answer(text, reply_markup=markup)
+    await track_bot_message(sent)
+    return sent.message_id
+
 
 async def reply_stop_step_after_location(message: Message, text: str, markup: InlineKeyboardMarkup) -> None:
     await message.answer("\u2060", reply_markup=ReplyKeyboardRemove())
@@ -846,39 +881,49 @@ async def _handle_start_locality_geo(
         return
     lat = float(loc.latitude)
     lng = float(loc.longitude)
-    bridge_id = await cleanup_chat(message)
-    try:
-        ranked = repo.nearest_stops_global(
-            lat,
-            lng,
-            limit=GEO_SUGGEST_LIMIT,
-            max_km=GEO_SUGGEST_MAX_KM,
+    data = await state.get_data()
+    prev_mid_raw = data.get(GEO_SUGGEST_MESSAGE_KEY)
+    prev_mid: int | None = int(prev_mid_raw) if prev_mid_raw is not None else None
+
+    ranked = repo.nearest_stops_global(
+        lat,
+        lng,
+        limit=GEO_SUGGEST_LIMIT,
+        max_km=GEO_SUGGEST_MAX_KM,
+    )
+    if ranked:
+        txt = (
+            "Ближайшие остановки посадки к твоей точке (км по прямой до точки остановки в каталоге, не время в пути). "
+            "Выбери кнопку ниже или продолжи выбор населённого пункта кнопками в сообщении выше."
         )
-        if ranked:
-            txt = (
-                "Ближайшие остановки посадки к твоей точке (км по прямой до точки остановки в каталоге, не время в пути). "
-                "Выбери кнопку ниже или продолжи выбор населённого пункта кнопками в сообщении выше."
-            )
-            sent = await message.answer(txt, reply_markup=geo_suggested_start_stops_keyboard(ranked, mode))
-            await track_bot_message(sent)
-            return
-        resolved = repo.nearest_locality_from_geo(lat, lng, max_km=LOCALITY_GEO_MAX_KM)
-        if not resolved:
-            sent_err = await message.answer(
-                "Не удалось подобрать остановки или город по координатам (слишком далеко или нет данных). Выбери город из списка.",
-                reply_markup=ReplyKeyboardRemove(),
-            )
-            await track_bot_message(sent_err)
-            return
-        locality, dkm = resolved
-        sent_loc = await message.answer(
-            f"Населённый пункт отправления: «{locality}» (~{dkm:.1f} км). Выбери район на следующем шаге.",
+        mid = await _send_or_edit_geo_suggestions(
+            message,
+            prev_mid,
+            txt,
+            geo_suggested_start_stops_keyboard(ranked, mode),
+        )
+        await state.update_data(**{GEO_SUGGEST_MESSAGE_KEY: mid})
+        return
+
+    if prev_mid is not None:
+        await _delete_message_safe(message.chat.id, prev_mid, message.bot)
+    await state.update_data(**{GEO_SUGGEST_MESSAGE_KEY: None})
+
+    resolved = repo.nearest_locality_from_geo(lat, lng, max_km=LOCALITY_GEO_MAX_KM)
+    if not resolved:
+        sent_err = await message.answer(
+            "Не удалось подобрать остановки или город по координатам (слишком далеко или нет данных). Выбери город из списка.",
             reply_markup=ReplyKeyboardRemove(),
         )
-        await track_bot_message(sent_loc)
-        await FLOW_ORCHESTRATOR.apply_start_locality_from_geo(message, state, repo, mode, locality)
-    finally:
-        await drop_empty_chat_bridge(message, bridge_id)
+        await track_bot_message(sent_err)
+        return
+    locality, dkm = resolved
+    sent_loc = await message.answer(
+        f"Населённый пункт отправления: «{locality}» (~{dkm:.1f} км). Выбери район на следующем шаге.",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+    await track_bot_message(sent_loc)
+    await FLOW_ORCHESTRATOR.apply_start_locality_from_geo(message, state, repo, mode, locality)
 
 
 @router.message(StateFilter(TripSearch.start_locality), F.location)

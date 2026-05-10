@@ -9,6 +9,10 @@ from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message, ReplyKey
 # Несколько подрайонов в районе, но мало остановок суммарно — один список кнопок вместо шага «подрайон».
 DISTRICT_MERGED_STOPS_MAX = 15
 
+# Совпадает с GEO_SUGGEST_MESSAGE_KEY в bot.py — сообщение с топом остановок по гео.
+_GEO_SUGGEST_MESSAGE_KEY = "geo_suggest_message_id"
+
+
 def stale_flow_hint(mode: str) -> str:
     """Текст для alert при устаревшем шаге поиска или создания поездки."""
     again = "«Найти поездки»" if mode == "search" else "«Создать поездку»"
@@ -118,6 +122,16 @@ class TripFlowOrchestrator:
         is_start: bool,
     ) -> None:
         cfg = self._cfg(mode)
+        data_pre = await state.get_data()
+        if is_start:
+            gid = data_pre.get(_GEO_SUGGEST_MESSAGE_KEY)
+            if gid is not None and callback.message:
+                try:
+                    await callback.bot.delete_message(callback.message.chat.id, int(gid))
+                except Exception:
+                    pass
+                await state.update_data(**{_GEO_SUGGEST_MESSAGE_KEY: None})
+
         parts = callback.data.split(":", 1)
         if len(parts) < 2:
             await callback.answer(stale_flow_hint(mode), show_alert=True)
@@ -440,6 +454,7 @@ class TripFlowOrchestrator:
             start_point=start_point,
             merged_stop_pick=False,
         )
+        await state.update_data(**{_GEO_SUGGEST_MESSAGE_KEY: None})
         localities = repo.list_localities()
         await state.set_state(cfg["state_group"].end_locality)
         await self._edit_or_send_clean(
