@@ -4,7 +4,7 @@ import os
 from unittest import TestCase
 from unittest.mock import patch
 
-from app.config import Settings, load_settings
+from app.config import load_settings
 
 
 def _clean_env() -> dict[str, str]:
