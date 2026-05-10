@@ -31,6 +31,12 @@ Tests are pure unit tests (no network, no database) using `unittest.IsolatedAsyn
 ### Key caveats
 
 - **Invoke Python:** on Linux/macOS use `python3`. On Windows, if `python3` is missing from PATH, use `py -3` (Python launcher).
-- No linter is configured in the repo (no flake8, ruff, mypy, or pylint config files). Static checks: `python3 -m py_compile <file>` or `py -3 -m py_compile <file>`.
-- The `.env` file is committed to the repo with a bot token. Treat it as a development convenience; do not rotate or remove it.
+- The `.env` file is **not** committed (since 2026-05-11). Use `.env.example` as a template:
+  - `cp .env.example .env`
+  - Set `BOT_TOKEN=<token from BotFather>`.
+  - Rotate the token at BotFather if it ever leaks; treat any leaked token as compromised.
+- **Linting:** project uses `ruff` (>=0.15.12).
+  - `py -3 -m ruff check .` and `py -3 -m ruff format --check .` must pass before committing.
+  - Configuration lives in `pyproject.toml`.
+- **Schema version:** SQLite has a `schema_version(id, version)` table. `app.db.SCHEMA_VERSION` is the current code version. Linear migrations by version are introduced in Этап 1 (see `docs/superpowers/specs/2026-05-11-etap-1-data-resilience.md`).
 - SQLite DB file (`yaride.db`) is created at first run and is gitignored implicitly (not tracked). Delete it to reset state.
