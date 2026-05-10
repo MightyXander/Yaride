@@ -27,7 +27,7 @@ from aiogram_calendar import SimpleCalendar, SimpleCalendarCallback
 from aiogram_calendar.schemas import SimpleCalAct
 
 from app.chat_ui import ChatUiService
-from app.config import load_settings
+from app.config import Settings, load_settings
 from app.db import Database
 from app.driver_license import normalize_dl_series_number, parse_expiry_date, validate_license_not_expired
 from app.filters import RatingReviewReplyFilter
@@ -257,6 +257,13 @@ class AccountUpgrade(StatesGroup):
 
 KEYBOARDS = KeyboardFactory()
 _REPO_FOR_KB: Repo | None = None
+_SETTINGS: Settings | None = None
+
+
+def _active_settings() -> Settings:
+    if _SETTINGS is not None:
+        return _SETTINGS
+    return Settings(bot_token="", db_path="")
 
 
 def main_keyboard(repo: Repo, tg_user_id: int) -> ReplyKeyboardMarkup:
@@ -273,7 +280,7 @@ def _chat_main_kb(tg_user_id: int) -> ReplyKeyboardMarkup:
 
 CHAT_UI = ChatUiService(
     main_keyboard_provider=_chat_main_kb,
-    flow_keyboard_provider=KEYBOARDS.flow_keyboard,
+    flow_keyboard_provider=lambda: KEYBOARDS.flow_keyboard(),
 )
 
 
@@ -388,10 +395,6 @@ async def cleanup_chat(message: Message) -> int | None:
 async def drop_empty_chat_bridge(message: Message, bridge_id: int | None) -> None:
     await CHAT_UI.drop_empty_chat_bridge(message, bridge_id)
 
-
-LOCALITY_GEO_MAX_KM = 150.0
-GEO_SUGGEST_LIMIT = 5
-GEO_SUGGEST_MAX_KM = 85.0
 
 # Сообщение с топом остановок по геолокации (редактируется при повторной отправке гео).
 GEO_SUGGEST_MESSAGE_KEY = "geo_suggest_message_id"
@@ -888,11 +891,12 @@ async def _handle_start_locality_geo(
     loc_ids.append(message.message_id)
     await state.update_data(**{GEO_USER_LOCATION_IDS_KEY: loc_ids})
 
+    st = _active_settings()
     ranked = repo.nearest_stops_global(
         lat,
         lng,
-        limit=GEO_SUGGEST_LIMIT,
-        max_km=GEO_SUGGEST_MAX_KM,
+        limit=st.geo_suggest_limit,
+        max_km=st.geo_suggest_max_km,
     )
     if ranked:
         txt = (
@@ -912,7 +916,7 @@ async def _handle_start_locality_geo(
         await _delete_message_safe(message.chat.id, prev_mid, message.bot)
     await state.update_data(**{GEO_SUGGEST_MESSAGE_KEY: None})
 
-    resolved = repo.nearest_locality_from_geo(lat, lng, max_km=LOCALITY_GEO_MAX_KM)
+    resolved = repo.nearest_locality_from_geo(lat, lng, max_km=st.locality_geo_max_km)
     if not resolved:
         sent_err = await message.answer(
             "Не удалось подобрать остановки или город по координатам (слишком далеко или нет данных). Выбери город из списка.",
@@ -1155,10 +1159,12 @@ async def create_set_seats(callback: CallbackQuery, state: FSMContext, repo: Rep
     except (ValueError, IndexError):
         await callback.answer("Некорректные данные кнопки.", show_alert=True)
         return
-    if seats < 2 or seats > 4:
+    cfg = _active_settings()
+    if seats not in cfg.seats_choices:
+        allowed_seats = ", ".join(str(s) for s in cfg.seats_choices)
         await edit_or_send_clean(
             callback,
-            "Допустимо только 2-4 пассажира.",
+            f"Допустимо только: {allowed_seats}.",
             reply_markup=add_back_button(seats_keyboard(), "create_time"),
         )
         await callback.answer()
@@ -1178,10 +1184,12 @@ async def create_set_price(callback: CallbackQuery, state: FSMContext, repo: Rep
     except (ValueError, IndexError):
         await callback.answer("Некорректные данные кнопки.", show_alert=True)
         return
-    if price not in (100, 150, 200):
+    cfg = _active_settings()
+    if price not in cfg.price_choices:
+        allowed_prices = ", ".join(str(p) for p in cfg.price_choices)
         await edit_or_send_clean(
             callback,
-            "Доступные цены: 100, 150, 200.",
+            f"Доступные цены: {allowed_prices}.",
             reply_markup=add_back_button(price_keyboard(), "create_seats"),
         )
         await callback.answer()
@@ -1686,9 +1694,11 @@ async def push_main_menu_after_restart(bot: Bot, repo: Repo) -> None:
 
 
 async def run() -> None:
-    global _REPO_FOR_KB
+    global _REPO_FOR_KB, KEYBOARDS, _SETTINGS
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     settings = load_settings()
+    _SETTINGS = settings
+    KEYBOARDS = KeyboardFactory(settings=settings)
     db = Database(settings.db_path)
     db.init_schema()
     repo = Repo(db)
@@ -1704,13 +1714,13 @@ async def run() -> None:
     await bot.delete_webhook(drop_pending_updates=True)
 
     async def rating_prompt_loop() -> None:
-        await asyncio.sleep(45)
+        await asyncio.sleep(settings.rating_prompt_initial_delay_s)
         while True:
             try:
                 await process_pending_rating_prompts(bot, repo)
             except Exception:
                 logger.exception("rating_prompt_loop")
-            await asyncio.sleep(180)
+            await asyncio.sleep(settings.rating_prompt_interval_s)
 
     asyncio.create_task(rating_prompt_loop())
     asyncio.create_task(push_main_menu_after_restart(bot, repo))

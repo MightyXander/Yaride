@@ -3,17 +3,33 @@ from __future__ import annotations
 from aiogram.types import InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+from app.config import Settings
+
 
 class KeyboardFactory:
     """Factory for all bot keyboards."""
 
-    def __init__(self, time_step_minutes: int = 30) -> None:
-        self._time_choices = self._build_time_choices(time_step_minutes)
+    def __init__(
+        self,
+        *,
+        settings: Settings | None = None,
+        time_step_minutes: int | None = None,
+    ) -> None:
+        if settings is None:
+            settings = Settings(bot_token="", db_path="")
+        if time_step_minutes is not None:
+            settings.time_step_minutes = time_step_minutes
+        self._settings = settings
+        self._time_choices = self._build_time_choices(
+            settings.time_step_minutes,
+            settings.work_hours_start,
+            settings.work_hours_end,
+        )
 
     @staticmethod
-    def _build_time_choices(step_minutes: int) -> list[str]:
+    def _build_time_choices(step_minutes: int, hour_start: int, hour_end: int) -> list[str]:
         out: list[str] = []
-        for hour in range(6, 23):
+        for hour in range(hour_start, hour_end):
             for minute in range(0, 60, step_minutes):
                 out.append(f"{hour:02d}:{minute:02d}")
         return out
@@ -114,20 +130,18 @@ class KeyboardFactory:
         kb.adjust(4)
         return kb.as_markup()
 
-    @staticmethod
-    def seats_keyboard(prefix: str = "create_seats") -> InlineKeyboardMarkup:
+    def seats_keyboard(self, prefix: str = "create_seats") -> InlineKeyboardMarkup:
         kb = InlineKeyboardBuilder()
-        for seats in [2, 3, 4]:
+        for seats in self._settings.seats_choices:
             kb.button(text=str(seats), callback_data=f"{prefix}:{seats}")
-        kb.adjust(3)
+        kb.adjust(len(self._settings.seats_choices) or 3)
         return kb.as_markup()
 
-    @staticmethod
-    def price_keyboard(prefix: str = "create_price") -> InlineKeyboardMarkup:
+    def price_keyboard(self, prefix: str = "create_price") -> InlineKeyboardMarkup:
         kb = InlineKeyboardBuilder()
-        for price in [100, 150, 200]:
+        for price in self._settings.price_choices:
             kb.button(text=f"{price} руб", callback_data=f"{prefix}:{price}")
-        kb.adjust(3)
+        kb.adjust(len(self._settings.price_choices) or 3)
         return kb.as_markup()
 
     @staticmethod
