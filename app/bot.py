@@ -37,7 +37,11 @@ from app.rating_worker import process_pending_rating_prompts
 from app.repo import Repo
 from app.security.rating_input import MAX_REVIEW_CHARS, parse_rate_callback_data
 from app.services.rating_service import RatingService
-from app.trip_flow import TripFlowOrchestrator
+from app.trip_flow import (
+    GEO_USER_LOCATION_IDS_KEY,
+    TripFlowOrchestrator,
+    delete_tracked_user_geo_messages,
+)
 from app.ui import KeyboardFactory
 
 logger = logging.getLogger(__name__)
@@ -884,6 +888,9 @@ async def _handle_start_locality_geo(
     data = await state.get_data()
     prev_mid_raw = data.get(GEO_SUGGEST_MESSAGE_KEY)
     prev_mid: int | None = int(prev_mid_raw) if prev_mid_raw is not None else None
+    loc_ids = list(data.get(GEO_USER_LOCATION_IDS_KEY) or [])
+    loc_ids.append(message.message_id)
+    await state.update_data(**{GEO_USER_LOCATION_IDS_KEY: loc_ids})
 
     ranked = repo.nearest_stops_global(
         lat,
@@ -923,6 +930,7 @@ async def _handle_start_locality_geo(
         reply_markup=ReplyKeyboardRemove(),
     )
     await track_bot_message(sent_loc)
+    await delete_tracked_user_geo_messages(message.bot, message.chat.id, state)
     await FLOW_ORCHESTRATOR.apply_start_locality_from_geo(message, state, repo, mode, locality)
 
 

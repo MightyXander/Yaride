@@ -12,6 +12,20 @@ DISTRICT_MERGED_STOPS_MAX = 15
 # Совпадает с GEO_SUGGEST_MESSAGE_KEY в bot.py — сообщение с топом остановок по гео.
 _GEO_SUGGEST_MESSAGE_KEY = "geo_suggest_message_id"
 
+# Сообщения пользователя с геолокацией (удаляем после выбора остановки или перехода к району по гео-городу).
+GEO_USER_LOCATION_IDS_KEY = "geo_user_location_message_ids"
+
+
+async def delete_tracked_user_geo_messages(bot, chat_id: int, state: FSMContext) -> None:
+    """Удаляет из чата все сохранённые геосообщения пользователя и очищает список в FSM."""
+    data = await state.get_data()
+    for mid in list(data.get(GEO_USER_LOCATION_IDS_KEY) or []):
+        try:
+            await bot.delete_message(chat_id, mid)
+        except Exception:
+            pass
+    await state.update_data(**{GEO_USER_LOCATION_IDS_KEY: []})
+
 
 def stale_flow_hint(mode: str) -> str:
     """Текст для alert при устаревшем шаге поиска или создания поездки."""
@@ -125,6 +139,8 @@ class TripFlowOrchestrator:
         data_pre = await state.get_data()
         if is_start:
             gid = data_pre.get(_GEO_SUGGEST_MESSAGE_KEY)
+            if callback.message:
+                await delete_tracked_user_geo_messages(callback.bot, callback.message.chat.id, state)
             if gid is not None and callback.message:
                 try:
                     await callback.bot.delete_message(callback.message.chat.id, int(gid))
@@ -447,6 +463,8 @@ class TripFlowOrchestrator:
         if pt is None or str(pt["kind"]) != "stop":
             await callback.answer("Остановка не найдена.", show_alert=True)
             return
+        if callback.message:
+            await delete_tracked_user_geo_messages(callback.bot, callback.message.chat.id, state)
         await state.update_data(
             start_locality=str(pt["locality"]),
             start_district=str(pt["district"] or ""),

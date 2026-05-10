@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, call
 
 from aiogram.types import ReplyKeyboardRemove
 
@@ -233,6 +233,7 @@ class TripFlowOrchestratorTests(IsolatedAsyncioTestCase):
         orchestrator, _, edit_or_send_clean = self._build_orchestrator()
         state = _FakeState()
         state.data["geo_suggest_message_id"] = 777
+        state.data["geo_user_location_message_ids"] = [123, 456]
         repo = _FakeRepo()
         callback = _FakeCallback("gxs:search:10")
 
@@ -240,6 +241,11 @@ class TripFlowOrchestratorTests(IsolatedAsyncioTestCase):
 
         self.assertEqual(state.data["start_point"], 10)
         self.assertIsNone(state.data.get("geo_suggest_message_id"))
+        self.assertEqual(state.data.get("geo_user_location_message_ids"), [])
+        self.assertEqual(
+            callback.bot.delete_message.await_args_list,
+            [call(555, 123), call(555, 456)],
+        )
         self.assertEqual(state.last_state, "search_end_locality")
         edit_or_send_clean.assert_awaited_once()
 
@@ -247,10 +253,15 @@ class TripFlowOrchestratorTests(IsolatedAsyncioTestCase):
         orchestrator, _, _ = self._build_orchestrator()
         state = _FakeState()
         state.data["geo_suggest_message_id"] = 888
+        state.data["geo_user_location_message_ids"] = [444]
         callback = _FakeCallback("Sfl:0")
         repo = _FakeRepo()
 
         await orchestrator.pick_locality(callback=callback, state=state, repo=repo, mode="search", is_start=True)
 
-        callback.bot.delete_message.assert_awaited_once_with(555, 888)
+        self.assertEqual(
+            callback.bot.delete_message.await_args_list,
+            [call(555, 444), call(555, 888)],
+        )
         self.assertIsNone(state.data.get("geo_suggest_message_id"))
+        self.assertEqual(state.data.get("geo_user_location_message_ids"), [])
