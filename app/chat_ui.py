@@ -6,6 +6,10 @@ from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message, ReplyKey
 
 from app.db import Database
 
+# Невидимый символ: пока удалена вся история, одно сообщение остаётся — иначе в клиенте Telegram
+# (особенно на телефоне) показывается экран «Запустить бота» вместо диалога.
+_EMPTY_CHAT_BRIDGE = "\u2060"
+
 
 class ChatUiService:
     """Service responsible for clean chat rendering and message history."""
@@ -52,7 +56,14 @@ class ChatUiService:
             ids.append(mid)
             self._chat_history[chat_id] = ids[-self._history_limit :]
 
-    async def cleanup_chat(self, message: Message) -> None:
+    async def cleanup_chat(self, message: Message) -> int | None:
+        bridge_id: int | None = None
+        try:
+            bridge = await message.answer(_EMPTY_CHAT_BRIDGE, disable_notification=True)
+            bridge_id = bridge.message_id
+        except Exception:
+            bridge_id = None
+
         chat_id = message.chat.id
         ids: list[int] = []
         if self._db:
@@ -78,21 +89,33 @@ class ChatUiService:
         except Exception:
             pass
 
+        return bridge_id
+
+    async def drop_empty_chat_bridge(self, message: Message | None, bridge_id: int | None) -> None:
+        if message is None or bridge_id is None:
+            return
+        try:
+            await message.bot.delete_message(message.chat.id, bridge_id)
+        except Exception:
+            pass
+
     async def send_clean_message(self, message: Message, text: str, **kwargs) -> Message:
-        await self.cleanup_chat(message)
+        bridge_id = await self.cleanup_chat(message)
         if "reply_markup" not in kwargs:
             uid = message.from_user.id if message.from_user else 0
             kwargs["reply_markup"] = self._main_keyboard_provider(uid)
         sent = await message.answer(text, **kwargs)
         await self.track_bot_message(sent)
+        await self.drop_empty_chat_bridge(message, bridge_id)
         return sent
 
     async def send_flow_step(self, message: Message, text: str, inline_markup: InlineKeyboardMarkup) -> None:
-        await self.cleanup_chat(message)
+        bridge_id = await self.cleanup_chat(message)
         nav = await message.answer("Навигация: используйте «⬅ Назад».", reply_markup=self._flow_keyboard_provider())
         await self.track_bot_message(nav)
         step = await message.answer(text, reply_markup=inline_markup)
         await self.track_bot_message(step)
+        await self.drop_empty_chat_bridge(message, bridge_id)
 
     async def edit_or_send_clean(self, callback: CallbackQuery, text: str, **kwargs) -> None:
         # Reply-клавиатура не поддерживается в editMessageText — только inline.
@@ -100,9 +123,10 @@ class ChatUiService:
         if isinstance(rm, ReplyKeyboardMarkup):
             if callback.message:
                 chat_id = callback.message.chat.id
-                await self.cleanup_chat(callback.message)
+                bridge_id = await self.cleanup_chat(callback.message)
                 sent = await callback.bot.send_message(chat_id=chat_id, text=text, reply_markup=rm)
                 await self.track_bot_message(sent)
+                await self.drop_empty_chat_bridge(callback.message, bridge_id)
             return
 
         # Если явно не передали новую inline-разметку, сохраняем текущую,
@@ -113,9 +137,10 @@ class ChatUiService:
             await callback.message.edit_text(text, **kwargs)
             await self.track_bot_message(callback.message)
         except Exception:
-            await self.cleanup_chat(callback.message)
+            bridge_id = await self.cleanup_chat(callback.message)
             if "reply_markup" not in kwargs:
                 uid = callback.from_user.id if callback.from_user else 0
                 kwargs["reply_markup"] = self._main_keyboard_provider(uid)
             sent = await callback.message.answer(text, **kwargs)
             await self.track_bot_message(sent)
+            await self.drop_empty_chat_bridge(callback.message, bridge_id)

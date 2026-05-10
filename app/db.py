@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 from contextlib import contextmanager
 
+from app.geo_stops import COORDINATE_OVERRIDES, lat_lng_for_stop
 from app.seeds import ROUTE_HIERARCHY
 
 
@@ -16,10 +17,41 @@ class Database:
         conn.execute("PRAGMA foreign_keys = ON;")
         return conn
 
+    def _ensure_extended_schema(self, conn: sqlite3.Connection) -> None:
+        """Таблицы из поздних миграций должны существовать всегда.
+
+        На старых или частично созданных БД init_schema мог не дойти до блока миграций;
+        без этого падают rating_worker, избранное и очистка чата.
+        """
+        core_cnt = conn.execute(
+            """
+            SELECT COUNT(DISTINCT name) FROM sqlite_master
+            WHERE type='table' AND name IN ('trips', 'users', 'route_points')
+            """
+        ).fetchone()[0]
+        if int(core_cnt) < 3:
+            return
+        names = {
+            row["name"]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name IN "
+                "('favorite_routes', 'trip_ratings', 'rating_prompts_sent', 'bot_chat_messages')"
+            ).fetchall()
+        }
+        if "favorite_routes" not in names or "trip_ratings" not in names or "rating_prompts_sent" not in names:
+            self._migrate_favorites_and_ratings(conn)
+        if "bot_chat_messages" not in names:
+            self._migrate_bot_chat_messages(conn)
+        self._migrate_trip_ratings_review_text(conn)
+        self._migrate_route_points_latlng(conn)
+        self._migrate_route_hierarchy_simplify(conn)
+        self._fill_route_point_coordinates(conn)
+
     @contextmanager
     def transaction(self):
         conn = self.connect()
         try:
+            self._ensure_extended_schema(conn)
             yield conn
             conn.commit()
         except Exception:
@@ -91,10 +123,12 @@ class Database:
             self._migrate_users_dl_columns(conn)
             self._migrate_users_min_passenger_rating(conn)
             self._migrate_route_points_schema(conn)
+            self._migrate_route_points_latlng(conn)
             self._migrate_favorites_and_ratings(conn)
             self._migrate_bot_chat_messages(conn)
             self._migrate_trip_ratings_review_text(conn)
             self._seed_route_points(conn)
+            self._fill_route_point_coordinates(conn)
 
     def _migrate_schema(self, conn: sqlite3.Connection) -> None:
         columns = {
@@ -228,6 +262,69 @@ class Database:
         cols = {row["name"] for row in conn.execute("PRAGMA table_info(trip_ratings)").fetchall()}
         if cols and "review_text" not in cols:
             conn.execute("ALTER TABLE trip_ratings ADD COLUMN review_text TEXT")
+
+    def _migrate_route_hierarchy_simplify(self, conn: sqlite3.Connection) -> None:
+        """Подтянуть старые строки route_points к упрощённой иерархии из seeds (идемпотентно)."""
+        cols = {row["name"] for row in conn.execute("PRAGMA table_info(route_points)").fetchall()}
+        if not cols or "admin_area" not in cols:
+            return
+        conn.execute(
+            """
+            UPDATE route_points SET admin_area = 'Весь Ленинский район'
+            WHERE locality = 'Ярославль' AND district = 'Ленинский район'
+              AND admin_area IN ('Загородный Сад', 'Пятёрка')
+            """
+        )
+        conn.execute(
+            """
+            UPDATE route_points SET admin_area = 'Посёлки (малые)'
+            WHERE locality = 'Ярославль' AND district = 'Красноперекопский район'
+              AND admin_area IN (
+                'Бутырки', 'Забелицы', 'Новодуховское', 'Творогово', 'пос. Силикатного завода'
+              )
+            """
+        )
+
+    def _migrate_route_points_latlng(self, conn: sqlite3.Connection) -> None:
+        cols = {row["name"] for row in conn.execute("PRAGMA table_info(route_points)").fetchall()}
+        if not cols:
+            return
+        if "latitude" not in cols:
+            conn.execute("ALTER TABLE route_points ADD COLUMN latitude REAL")
+        if "longitude" not in cols:
+            conn.execute("ALTER TABLE route_points ADD COLUMN longitude REAL")
+
+    def _fill_route_point_coordinates(self, conn: sqlite3.Connection) -> None:
+        cols = {row["name"] for row in conn.execute("PRAGMA table_info(route_points)").fetchall()}
+        if "latitude" not in cols or "longitude" not in cols:
+            return
+        rows = conn.execute(
+            """
+            SELECT id, locality, district, admin_area, title FROM route_points
+            WHERE kind = 'stop' AND (latitude IS NULL OR longitude IS NULL)
+            """
+        ).fetchall()
+        for r in rows:
+            lat, lng = lat_lng_for_stop(
+                str(r["locality"]),
+                str(r["district"] or ""),
+                str(r["admin_area"] or ""),
+                str(r["title"]),
+            )
+            conn.execute(
+                "UPDATE route_points SET latitude = ?, longitude = ? WHERE id = ?",
+                (lat, lng, int(r["id"])),
+            )
+        for loc, dist, adm, title in COORDINATE_OVERRIDES:
+            lat, lng = lat_lng_for_stop(loc, dist, adm, title)
+            conn.execute(
+                """
+                UPDATE route_points
+                SET latitude = ?, longitude = ?
+                WHERE kind = 'stop' AND locality = ? AND COALESCE(district, '') = ? AND COALESCE(admin_area, '') = ? AND title = ?
+                """,
+                (lat, lng, loc, dist, adm, title),
+            )
 
     def _seed_route_points(self, conn: sqlite3.Connection) -> None:
         existing = conn.execute("SELECT COUNT(*) AS cnt FROM route_points").fetchone()["cnt"]

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message, ReplyKeyboardRemove
 
+
+# Несколько подрайонов в районе, но мало остановок суммарно — один список кнопок вместо шага «подрайон».
+DISTRICT_MERGED_STOPS_MAX = 15
 
 def stale_flow_hint(mode: str) -> str:
     """Текст для alert при устаревшем шаге поиска или создания поездки."""
@@ -45,6 +48,9 @@ class TripFlowOrchestrator:
         districts_keyboard: Callable[..., Any],
         stops_keyboard: Callable[..., Any],
         trip_calendar_factory: Callable[..., Any],
+        reply_stop_step_message: Callable[[Message, str, InlineKeyboardMarkup], Awaitable[None]]
+        | None = None,
+        on_begin_start_locality_shown: Callable[[Message, str], Awaitable[None]] | None = None,
     ) -> None:
         self._mode_cfg = mode_cfg
         self._send_flow_step = send_flow_step
@@ -54,6 +60,8 @@ class TripFlowOrchestrator:
         self._districts_keyboard = districts_keyboard
         self._stops_keyboard = stops_keyboard
         self._trip_calendar_factory = trip_calendar_factory
+        self._reply_stop_step_message = reply_stop_step_message
+        self._on_begin_start_locality_shown = on_begin_start_locality_shown
 
     def _cfg(self, mode: str) -> dict[str, Any]:
         return self._mode_cfg[mode]
@@ -68,6 +76,38 @@ class TripFlowOrchestrator:
             cfg["entry_text"],
             self._add_back_button(self._localities_keyboard(cfg["start_locality_prefix"], localities), "menu"),
         )
+        if self._on_begin_start_locality_shown:
+            await self._on_begin_start_locality_shown(message, mode)
+
+    async def apply_start_locality_from_geo(
+        self,
+        message: Message,
+        state: FSMContext,
+        repo: Any,
+        mode: str,
+        locality: str,
+    ) -> None:
+        """Переход к выбору района после определения населённого пункта отправления по геолокации."""
+        cfg = self._cfg(mode)
+        localities = repo.list_localities()
+        if locality not in localities:
+            await message.answer(
+                "Этого населённого пункта нет в списке маршрутов. Выбери из списка кнопкой.",
+                reply_markup=ReplyKeyboardRemove(),
+            )
+            return
+        await state.update_data(start_locality=locality)
+        districts = repo.list_districts(locality)
+        await state.set_state(cfg["state_group"].start_district)
+        markup = self._add_back_button(
+            self._districts_keyboard(cfg["start_district_prefix"], districts),
+            cfg["start_district_back"],
+        )
+        text = f"{locality}: выбери район:"
+        if self._reply_stop_step_message:
+            await self._reply_stop_step_message(message, text, markup)
+        else:
+            await message.answer(text, reply_markup=markup)
 
     async def pick_locality(
         self,
@@ -165,7 +205,7 @@ class TripFlowOrchestrator:
             merged_stops: list[Any] = []
             for aa in admin_areas:
                 merged_stops.extend(repo.list_stops(locality, district, aa))
-            if 1 <= len(merged_stops) <= 6:
+            if 1 <= len(merged_stops) <= DISTRICT_MERGED_STOPS_MAX:
                 merged_stops.sort(key=lambda x: str(x["title"]))
                 await state.update_data(merged_stop_pick=True)
                 state_stop = cfg["state_group"].start_stop if is_start else cfg["state_group"].end_stop
@@ -377,4 +417,37 @@ class TripFlowOrchestrator:
             ),
         )
         await state.update_data(calendar_target=mode)
+        await callback.answer()
+
+    async def transition_geo_pick_start_stop(
+        self,
+        callback: CallbackQuery,
+        state: FSMContext,
+        repo: Any,
+        mode: str,
+        start_point: int,
+    ) -> None:
+        """Выбор остановки посадки из подсказок после геолокации на первом шаге."""
+        cfg = self._cfg(mode)
+        pt = repo.get_point(start_point)
+        if pt is None or str(pt["kind"]) != "stop":
+            await callback.answer("Остановка не найдена.", show_alert=True)
+            return
+        await state.update_data(
+            start_locality=str(pt["locality"]),
+            start_district=str(pt["district"] or ""),
+            start_admin_area=str(pt["admin_area"] or ""),
+            start_point=start_point,
+            merged_stop_pick=False,
+        )
+        localities = repo.list_localities()
+        await state.set_state(cfg["state_group"].end_locality)
+        await self._edit_or_send_clean(
+            callback,
+            cfg["end_entry_text"],
+            reply_markup=self._add_back_button(
+                self._localities_keyboard(cfg["end_locality_prefix"], localities),
+                cfg["start_stop_back"],
+            ),
+        )
         await callback.answer()

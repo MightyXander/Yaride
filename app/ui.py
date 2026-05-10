@@ -47,6 +47,19 @@ class KeyboardFactory:
         )
 
     @staticmethod
+    def location_reply_keyboard() -> ReplyKeyboardMarkup:
+        """Reply-клавиатура: отправить геолокацию или вернуться (навигация «Назад» как в других шагах)."""
+        return ReplyKeyboardMarkup(
+            keyboard=[
+                [KeyboardButton(text="📍 Отправить местоположение", request_location=True)],
+                [KeyboardButton(text="⬅ Назад")],
+            ],
+            resize_keyboard=True,
+            one_time_keyboard=False,
+            is_persistent=True,
+        )
+
+    @staticmethod
     def role_keyboard() -> InlineKeyboardMarkup:
         kb = InlineKeyboardBuilder()
         kb.button(text="Водитель", callback_data="set_role:driver")
@@ -198,6 +211,23 @@ class KeyboardFactory:
         return kb.as_markup()
 
     @staticmethod
+    def geo_suggested_start_stops_keyboard(
+        ranked: list[tuple[object, float]],
+        mode: str,
+    ) -> InlineKeyboardMarkup:
+        """Подсказки посадки по геолокации: callback gxs:{mode}:{point_id}."""
+        kb = InlineKeyboardBuilder()
+        for row, dkm in ranked:
+            rid = int(row["id"])
+            title = str(row["title"]).replace("\n", " ")
+            label = f"{title} (~{dkm:.1f} км)"
+            if len(label) > 64:
+                label = label[:61] + "…"
+            kb.button(text=label, callback_data=f"gxs:{mode}:{rid}")
+        kb.adjust(1)
+        return kb.as_markup()
+
+    @staticmethod
     def rating_stars_keyboard(trip_id: int, rated_tg_user_id: int) -> InlineKeyboardMarkup:
         kb = InlineKeyboardBuilder()
         for s in range(1, 6):
@@ -213,6 +243,7 @@ class KeyboardFactory:
         kb.button(text="Имя в сервисе", callback_data="account:name")
         if show_become_driver:
             kb.button(text="Стать водителем", callback_data="account:upgrade_driver")
+        kb.button(text="⬅ Главное меню", callback_data="account:main_menu")
         kb.adjust(1)
         return kb.as_markup()
 
@@ -220,5 +251,6 @@ class KeyboardFactory:
     def account_back_keyboard() -> InlineKeyboardMarkup:
         kb = InlineKeyboardBuilder()
         kb.button(text="⬅ В аккаунт", callback_data="account:root")
+        kb.button(text="⬅ Главное меню", callback_data="account:main_menu")
         kb.adjust(1)
         return kb.as_markup()

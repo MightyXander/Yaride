@@ -6,6 +6,7 @@ from datetime import date, datetime, timedelta
 from typing import Iterable
 
 from app.db import Database
+from app.geo_stops import haversine_km
 from app.seeds import ROUTE_HIERARCHY
 
 
@@ -79,6 +80,11 @@ class UserRepository(_BaseRepository):
     def get_user(self, tg_user_id: int) -> sqlite3.Row | None:
         with self.db.transaction() as conn:
             return conn.execute("SELECT * FROM users WHERE tg_user_id = ?", (tg_user_id,)).fetchone()
+
+    def list_all_tg_user_ids(self) -> list[int]:
+        with self.db.transaction() as conn:
+            rows = conn.execute("SELECT tg_user_id FROM users ORDER BY id").fetchall()
+        return [int(r["tg_user_id"]) for r in rows]
 
     def set_driver_min_passenger_rating(self, tg_user_id: int, min_rating: float | None) -> None:
         """Минимальный средний рейтинг пассажира для автоматического принятия брони; None — без ограничения."""
@@ -226,6 +232,74 @@ class RouteRepository(_BaseRepository):
     def get_point(self, point_id: int) -> sqlite3.Row | None:
         with self.db.transaction() as conn:
             return conn.execute("SELECT * FROM route_points WHERE id = ?", (point_id,)).fetchone()
+
+    def nearest_stops_ranked(
+        self,
+        lat: float,
+        lng: float,
+        candidates: list[sqlite3.Row],
+        *,
+        limit: int = 5,
+    ) -> list[tuple[sqlite3.Row, float]]:
+        scored: list[tuple[sqlite3.Row, float]] = []
+        for r in candidates:
+            la, ln = r["latitude"], r["longitude"]
+            if la is None or ln is None:
+                continue
+            d = haversine_km(lat, lng, float(la), float(ln))
+            scored.append((r, d))
+        scored.sort(key=lambda x: x[1])
+        return scored[:limit]
+
+    def nearest_locality_from_geo(
+        self,
+        lat: float,
+        lng: float,
+        *,
+        max_km: float = 150.0,
+    ) -> tuple[str, float] | None:
+        """Ближайшая к точке остановка в базе → её населённый пункт и расстояние."""
+        with self.db.transaction() as conn:
+            rows = conn.execute(
+                """
+                SELECT locality, latitude, longitude FROM route_points
+                WHERE kind = 'stop' AND latitude IS NOT NULL AND longitude IS NOT NULL
+                """
+            ).fetchall()
+        best_loc: str | None = None
+        best_d: float | None = None
+        for r in rows:
+            d = haversine_km(lat, lng, float(r["latitude"]), float(r["longitude"]))
+            if best_d is None or d < best_d:
+                best_d = d
+                best_loc = str(r["locality"])
+        if best_loc is None or best_d is None or best_d > max_km:
+            return None
+        return best_loc, best_d
+
+    def nearest_stops_global(
+        self,
+        lat: float,
+        lng: float,
+        *,
+        limit: int = 5,
+        max_km: float = 80.0,
+    ) -> list[tuple[sqlite3.Row, float]]:
+        """Все остановки с координатами, в пределах max_km, по возрастанию расстояния."""
+        with self.db.transaction() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM route_points
+                WHERE kind = 'stop' AND latitude IS NOT NULL AND longitude IS NOT NULL
+                """
+            ).fetchall()
+        scored: list[tuple[sqlite3.Row, float]] = []
+        for r in rows:
+            d = haversine_km(lat, lng, float(r["latitude"]), float(r["longitude"]))
+            if d <= max_km:
+                scored.append((r, d))
+        scored.sort(key=lambda x: x[1])
+        return scored[:limit]
 
 
 class TripRepository(_BaseRepository):
@@ -1009,6 +1083,9 @@ class Repo:
     def get_user(self, tg_user_id: int) -> sqlite3.Row | None:
         return self.users.get_user(tg_user_id)
 
+    def list_all_tg_user_ids(self) -> list[int]:
+        return self.users.list_all_tg_user_ids()
+
     def route_points(self) -> list[sqlite3.Row]:
         return self.routes.route_points()
 
@@ -1026,6 +1103,35 @@ class Repo:
 
     def get_point(self, point_id: int) -> sqlite3.Row | None:
         return self.routes.get_point(point_id)
+
+    def nearest_stops_ranked(
+        self,
+        lat: float,
+        lng: float,
+        candidates: list[sqlite3.Row],
+        *,
+        limit: int = 5,
+    ) -> list[tuple[sqlite3.Row, float]]:
+        return self.routes.nearest_stops_ranked(lat, lng, candidates, limit=limit)
+
+    def nearest_locality_from_geo(
+        self,
+        lat: float,
+        lng: float,
+        *,
+        max_km: float = 150.0,
+    ) -> tuple[str, float] | None:
+        return self.routes.nearest_locality_from_geo(lat, lng, max_km=max_km)
+
+    def nearest_stops_global(
+        self,
+        lat: float,
+        lng: float,
+        *,
+        limit: int = 5,
+        max_km: float = 80.0,
+    ) -> list[tuple[sqlite3.Row, float]]:
+        return self.routes.nearest_stops_global(lat, lng, limit=limit, max_km=max_km)
 
     def create_trip(
         self,

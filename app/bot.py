@@ -4,6 +4,8 @@ import asyncio
 import calendar
 import html
 import logging
+import os
+import sqlite3
 from datetime import date as date_cls
 from datetime import datetime
 
@@ -11,7 +13,7 @@ from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.types import (
     CallbackQuery,
     ForceReply,
@@ -19,6 +21,7 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     Message,
     ReplyKeyboardMarkup,
+    ReplyKeyboardRemove,
 )
 from aiogram_calendar import SimpleCalendar, SimpleCalendarCallback
 from aiogram_calendar.schemas import SimpleCalAct
@@ -339,6 +342,12 @@ def add_favorite_keyboard(trip_id: int) -> InlineKeyboardMarkup:
     return KEYBOARDS.add_favorite_keyboard(trip_id)
 
 
+def geo_suggested_start_stops_keyboard(
+    ranked: list[tuple[sqlite3.Row, float]], mode: str
+) -> InlineKeyboardMarkup:
+    return KEYBOARDS.geo_suggested_start_stops_keyboard(ranked, mode)
+
+
 def account_kb_menu(show_become_driver: bool) -> InlineKeyboardMarkup:
     return KEYBOARDS.account_menu_keyboard(show_become_driver=show_become_driver)
 
@@ -371,8 +380,32 @@ async def edit_or_send_clean(callback: CallbackQuery, text: str, **kwargs) -> No
     await CHAT_UI.edit_or_send_clean(callback, text, **kwargs)
 
 
-async def cleanup_chat(message: Message) -> None:
-    await CHAT_UI.cleanup_chat(message)
+async def cleanup_chat(message: Message) -> int | None:
+    return await CHAT_UI.cleanup_chat(message)
+
+
+async def drop_empty_chat_bridge(message: Message, bridge_id: int | None) -> None:
+    await CHAT_UI.drop_empty_chat_bridge(message, bridge_id)
+
+
+LOCALITY_GEO_MAX_KM = 150.0
+GEO_SUGGEST_LIMIT = 5
+GEO_SUGGEST_MAX_KM = 85.0
+
+
+async def reply_stop_step_after_location(message: Message, text: str, markup: InlineKeyboardMarkup) -> None:
+    await message.answer("\u2060", reply_markup=ReplyKeyboardRemove())
+    sent = await message.answer(text, reply_markup=markup)
+    await track_bot_message(sent)
+
+
+async def hint_start_locality_geo(message: Message, mode: str) -> None:
+    _ = mode
+    sent = await message.answer(
+        "📍 Отправь геолокацию — покажем ближайшие остановки посадки (или выбери город из списка выше).",
+        reply_markup=KEYBOARDS.location_reply_keyboard(),
+    )
+    await track_bot_message(sent)
 
 
 FLOW_MODE_CFG = {
@@ -429,6 +462,8 @@ FLOW_ORCHESTRATOR = TripFlowOrchestrator(
     districts_keyboard=districts_keyboard,
     stops_keyboard=stops_keyboard,
     trip_calendar_factory=trip_calendar,
+    reply_stop_step_message=reply_stop_step_after_location,
+    on_begin_start_locality_shown=hint_start_locality_geo,
 )
 
 NAVIGATION_FLOW = NavigationFlow(
@@ -452,7 +487,7 @@ NAVIGATION_FLOW = NavigationFlow(
 
 @router.message(Command("start"))
 async def start(message: Message, state: FSMContext, repo: Repo) -> None:
-    await cleanup_chat(message)
+    bridge_id = await cleanup_chat(message)
     await state.clear()
     user = repo.get_user(message.from_user.id)
     if user:
@@ -462,10 +497,12 @@ async def start(message: Message, state: FSMContext, repo: Repo) -> None:
         text = f"<b>{html.escape(name)}</b> Давно не виделись. Выберите вашу роль:"
         sent = await message.answer(text, parse_mode="HTML", reply_markup=role_keyboard())
         await track_bot_message(sent)
+        await drop_empty_chat_bridge(message, bridge_id)
         return
     await state.set_state(Registration.waiting_name)
     sent = await message.answer("Привет! Введи имя пользователя — так тебя будут видеть другие участники.")
     await track_bot_message(sent)
+    await drop_empty_chat_bridge(message, bridge_id)
 
 
 @router.message(Registration.waiting_name)
@@ -618,6 +655,16 @@ async def account_panel(callback: CallbackQuery, state: FSMContext, repo: Repo) 
 
     if action == "root":
         await edit_or_send_clean(callback, "Раздел «Аккаунт»:", reply_markup=menu)
+        await callback.answer()
+        return
+
+    if action == "main_menu":
+        if callback.message:
+            await send_clean_message(
+                callback.message,
+                "Главное меню",
+                reply_markup=main_keyboard(repo, callback.from_user.id),
+            )
         await callback.answer()
         return
 
@@ -785,6 +832,85 @@ async def search_pick_end_admin(callback: CallbackQuery, state: FSMContext, repo
 @router.callback_query(F.data.startswith("Stp:"))
 async def search_pick_end_stop(callback: CallbackQuery, state: FSMContext, repo: Repo) -> None:
     await FLOW_ORCHESTRATOR.pick_end_stop(callback, state, repo, mode="search")
+
+
+async def _handle_start_locality_geo(
+    message: Message,
+    state: FSMContext,
+    repo: Repo,
+    *,
+    mode: str,
+) -> None:
+    loc = message.location
+    if loc is None:
+        return
+    lat = float(loc.latitude)
+    lng = float(loc.longitude)
+    bridge_id = await cleanup_chat(message)
+    try:
+        ranked = repo.nearest_stops_global(
+            lat,
+            lng,
+            limit=GEO_SUGGEST_LIMIT,
+            max_km=GEO_SUGGEST_MAX_KM,
+        )
+        if ranked:
+            txt = (
+                "Ближайшие остановки посадки к твоей точке (км по прямой до точки остановки в каталоге, не время в пути). "
+                "Выбери кнопку ниже или продолжи выбор населённого пункта кнопками в сообщении выше."
+            )
+            sent = await message.answer(txt, reply_markup=geo_suggested_start_stops_keyboard(ranked, mode))
+            await track_bot_message(sent)
+            return
+        resolved = repo.nearest_locality_from_geo(lat, lng, max_km=LOCALITY_GEO_MAX_KM)
+        if not resolved:
+            sent_err = await message.answer(
+                "Не удалось подобрать остановки или город по координатам (слишком далеко или нет данных). Выбери город из списка.",
+                reply_markup=ReplyKeyboardRemove(),
+            )
+            await track_bot_message(sent_err)
+            return
+        locality, dkm = resolved
+        sent_loc = await message.answer(
+            f"Населённый пункт отправления: «{locality}» (~{dkm:.1f} км). Выбери район на следующем шаге.",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+        await track_bot_message(sent_loc)
+        await FLOW_ORCHESTRATOR.apply_start_locality_from_geo(message, state, repo, mode, locality)
+    finally:
+        await drop_empty_chat_bridge(message, bridge_id)
+
+
+@router.message(StateFilter(TripSearch.start_locality), F.location)
+async def search_start_locality_geo(message: Message, state: FSMContext, repo: Repo) -> None:
+    await _handle_start_locality_geo(message, state, repo, mode="search")
+
+
+@router.message(StateFilter(TripCreate.start_locality), F.location)
+async def create_start_locality_geo(message: Message, state: FSMContext, repo: Repo) -> None:
+    await _handle_start_locality_geo(message, state, repo, mode="create")
+
+
+@router.callback_query(F.data.startswith("gxs:"))
+async def geo_pick_suggested_start_stop(callback: CallbackQuery, state: FSMContext, repo: Repo) -> None:
+    cur = await state.get_state()
+    if cur is None or not str(cur).endswith("start_locality"):
+        await callback.answer("Шаг устарел. Начни выбор маршрута заново.", show_alert=True)
+        return
+    parts = callback.data.split(":")
+    if len(parts) != 3:
+        await callback.answer()
+        return
+    _, mode, sid = parts
+    if mode not in ("search", "create"):
+        await callback.answer()
+        return
+    try:
+        pid = int(sid)
+    except ValueError:
+        await callback.answer()
+        return
+    await FLOW_ORCHESTRATOR.transition_geo_pick_start_stop(callback, state, repo, mode, pid)
 
 
 @router.callback_query(F.data.startswith("book:"))
@@ -1452,6 +1578,52 @@ async def fallback(message: Message, repo: Repo) -> None:
     )
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
+async def push_main_menu_after_restart(bot: Bot, repo: Repo) -> None:
+    """После рестарта FSM в памяти пуст; рассылаем главное меню, чтобы сменить reply-клавиатуру."""
+    if not _env_bool("YARIDE_PUSH_MENU_ON_START", True):
+        logger.info("Меню после рестарта отключено (YARIDE_PUSH_MENU_ON_START)")
+        return
+    ids = repo.list_all_tg_user_ids()
+    if not ids:
+        return
+    text = "Бот перезапущен — сценарии сброшены. Продолжайте с главного меню ниже."
+    ok = skip = 0
+    for tg_user_id in ids:
+        try:
+            sent = await bot.send_message(
+                tg_user_id,
+                text,
+                reply_markup=main_keyboard(repo, tg_user_id),
+                disable_notification=True,
+            )
+            await track_bot_message(sent)
+            ok += 1
+        except TelegramForbiddenError:
+            skip += 1
+        except TelegramBadRequest as exc:
+            msg = str(exc).lower()
+            if "blocked" in msg or "chat not found" in msg or "user is deactivated" in msg:
+                skip += 1
+            else:
+                logger.warning("Меню после рестарта: tg=%s — %s", tg_user_id, exc)
+        except Exception:
+            logger.exception("Меню после рестарта: tg=%s", tg_user_id)
+        await asyncio.sleep(0.04)
+    logger.info(
+        "После рестарта главное меню отправлено %s из %s пользователей (пропусков: %s)",
+        ok,
+        len(ids),
+        skip,
+    )
+
+
 async def run() -> None:
     global _REPO_FOR_KB
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -1467,8 +1639,8 @@ async def run() -> None:
     dp["repo"] = repo
     dp.include_router(router)
 
-    # Снимает webhook, если он был включён — иначе polling конфликтует с доставкой через URL.
-    await bot.delete_webhook(drop_pending_updates=False)
+    # Снимает webhook и не обрабатывает старые апдейты из очереди до рестарта.
+    await bot.delete_webhook(drop_pending_updates=True)
 
     async def rating_prompt_loop() -> None:
         await asyncio.sleep(45)
@@ -1480,5 +1652,6 @@ async def run() -> None:
             await asyncio.sleep(180)
 
     asyncio.create_task(rating_prompt_loop())
+    asyncio.create_task(push_main_menu_after_restart(bot, repo))
 
     await dp.start_polling(bot)

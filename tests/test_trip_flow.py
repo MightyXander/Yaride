@@ -4,6 +4,8 @@ from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase
 from unittest.mock import AsyncMock
 
+from aiogram.types import ReplyKeyboardRemove
+
 from app.trip_flow import TripFlowOrchestrator
 
 
@@ -38,6 +40,11 @@ class _FakeCallback:
         self.answer = AsyncMock()
 
 
+class _FakeMessage:
+    def __init__(self) -> None:
+        self.answer = AsyncMock()
+
+
 class _FakeRepo:
     def __init__(self) -> None:
         self._localities = ["A", "B"]
@@ -58,11 +65,20 @@ class _FakeRepo:
     def get_point(self, point_id: int):
         if point_id == 77:
             return {"locality": "A", "district": "D1", "admin_area": "Center", "title": "End"}
+        if point_id == 10:
+            return {
+                "id": 10,
+                "kind": "stop",
+                "locality": "A",
+                "district": "D1",
+                "admin_area": "Center",
+                "title": "Start",
+            }
         return None
 
 
 class TripFlowOrchestratorTests(IsolatedAsyncioTestCase):
-    def _build_orchestrator(self):
+    def _build_orchestrator(self, *, reply_stop_step_message=None):
         send_flow_step = AsyncMock()
         edit_or_send_clean = AsyncMock()
         mode_cfg = {
@@ -138,6 +154,7 @@ class TripFlowOrchestratorTests(IsolatedAsyncioTestCase):
             districts_keyboard=lambda prefix, districts: ("DIST", prefix, tuple(districts)),
             stops_keyboard=lambda stops, prefix: ("STOP", prefix, tuple((s["id"], s["title"]) for s in stops)),
             trip_calendar_factory=lambda: _FakeCalendar(),
+            reply_stop_step_message=reply_stop_step_message,
         )
         return orchestrator, send_flow_step, edit_or_send_clean
 
@@ -186,3 +203,38 @@ class TripFlowOrchestratorTests(IsolatedAsyncioTestCase):
         self.assertEqual(state.last_state, "create_trip_date")
         callback.answer.assert_awaited_once()
         self.assertEqual(edit_or_send_clean.await_args.kwargs["reply_markup"][2], "create_end_stop")
+
+    async def test_apply_start_locality_from_geo_unknown_removes_reply_keyboard(self) -> None:
+        orchestrator, _, _ = self._build_orchestrator()
+        state = _FakeState()
+        repo = _FakeRepo()
+        msg = _FakeMessage()
+
+        await orchestrator.apply_start_locality_from_geo(msg, state, repo, "search", "НетТакого")
+
+        msg.answer.assert_awaited_once()
+        self.assertIsInstance(msg.answer.await_args.kwargs["reply_markup"], ReplyKeyboardRemove)
+
+    async def test_apply_start_locality_from_geo_uses_reply_hook(self) -> None:
+        reply_hook = AsyncMock()
+        orchestrator, _, _ = self._build_orchestrator(reply_stop_step_message=reply_hook)
+        state = _FakeState()
+        repo = _FakeRepo()
+        msg = _FakeMessage()
+
+        await orchestrator.apply_start_locality_from_geo(msg, state, repo, "search", "A")
+
+        reply_hook.assert_awaited_once()
+        self.assertEqual(state.data["start_locality"], "A")
+
+    async def test_transition_geo_pick_start_stop_sets_end_locality_step(self) -> None:
+        orchestrator, _, edit_or_send_clean = self._build_orchestrator()
+        state = _FakeState()
+        repo = _FakeRepo()
+        callback = _FakeCallback("gxs:search:10")
+
+        await orchestrator.transition_geo_pick_start_stop(callback, state, repo, "search", 10)
+
+        self.assertEqual(state.data["start_point"], 10)
+        self.assertEqual(state.last_state, "search_end_locality")
+        edit_or_send_clean.assert_awaited_once()
