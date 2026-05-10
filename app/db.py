@@ -6,6 +6,8 @@ from contextlib import contextmanager
 from app.geo_stops import COORDINATE_OVERRIDES, lat_lng_for_stop
 from app.seeds import ROUTE_HIERARCHY
 
+SCHEMA_VERSION = 1
+
 
 class Database:
     def __init__(self, db_path: str) -> None:
@@ -129,6 +131,24 @@ class Database:
             self._migrate_trip_ratings_review_text(conn)
             self._seed_route_points(conn)
             self._fill_route_point_coordinates(conn)
+            self._ensure_schema_version(conn)
+
+    def _ensure_schema_version(self, conn: sqlite3.Connection) -> None:
+        """Создаёт таблицу schema_version и записывает текущую версию, если её ещё нет."""
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS schema_version (
+                id INTEGER PRIMARY KEY CHECK(id = 1),
+                version INTEGER NOT NULL
+            )
+            """
+        )
+        row = conn.execute("SELECT version FROM schema_version WHERE id = 1").fetchone()
+        if row is None:
+            conn.execute(
+                "INSERT INTO schema_version(id, version) VALUES (1, ?)",
+                (SCHEMA_VERSION,),
+            )
 
     def _migrate_schema(self, conn: sqlite3.Connection) -> None:
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(trips)").fetchall()}
