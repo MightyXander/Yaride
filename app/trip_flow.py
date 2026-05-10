@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from typing import Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message, ReplyKeyboardRemove
-
 
 # Несколько подрайонов в районе, но мало остановок суммарно — один список кнопок вместо шага «подрайон».
 DISTRICT_MERGED_STOPS_MAX = 15
@@ -66,8 +66,7 @@ class TripFlowOrchestrator:
         districts_keyboard: Callable[..., Any],
         stops_keyboard: Callable[..., Any],
         trip_calendar_factory: Callable[..., Any],
-        reply_stop_step_message: Callable[[Message, str, InlineKeyboardMarkup], Awaitable[None]]
-        | None = None,
+        reply_stop_step_message: Callable[[Message, str, InlineKeyboardMarkup], Awaitable[None]] | None = None,
         on_begin_start_locality_shown: Callable[[Message, str], Awaitable[None]] | None = None,
     ) -> None:
         self._mode_cfg = mode_cfg

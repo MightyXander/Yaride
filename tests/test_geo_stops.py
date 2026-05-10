@@ -19,9 +19,7 @@ class GeoStopsTests(TestCase):
 
     def test_coordinate_overrides_used(self) -> None:
         ak = lat_lng_for_stop("Ярославль", "Фрунзенский район", "Сокол / Сокол-2", "ТЦ «Аксон»")
-        self.assertEqual(ak, COORDINATE_OVERRIDES[
-            ("Ярославль", "Фрунзенский район", "Сокол / Сокол-2", "ТЦ «Аксон»")
-        ])
+        self.assertEqual(ak, COORDINATE_OVERRIDES[("Ярославль", "Фрунзенский район", "Сокол / Сокол-2", "ТЦ «Аксон»")])
 
     def test_coordinate_overrides_cover_catalog_keys(self) -> None:
         self.assertGreaterEqual(len(COORDINATE_OVERRIDES), 30)

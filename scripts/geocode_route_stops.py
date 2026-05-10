@@ -73,9 +73,7 @@ def photon_search(q: str) -> tuple[float, float] | None:
 
 
 def nominatim_search(q: str) -> tuple[float, float] | None:
-    params = urllib.parse.urlencode(
-        {"q": q, "format": "json", "limit": 1, "accept-language": "ru"}
-    )
+    params = urllib.parse.urlencode({"q": q, "format": "json", "limit": 1, "accept-language": "ru"})
     url = f"{NOMINATIM}?{params}"
     backoff_s = 45
     for attempt in range(6):
@@ -100,9 +98,7 @@ def nominatim_search(q: str) -> tuple[float, float] | None:
     return None
 
 
-def _geocode_one(
-    engine: str, q: str, delay: float, nominatim_delay: float
-) -> tuple[tuple[float, float] | None, str]:
+def _geocode_one(engine: str, q: str, delay: float, nominatim_delay: float) -> tuple[tuple[float, float] | None, str]:
     """Возвращает ((lat, lon) или None, метка источника для JSON)."""
     if engine == "photon":
         time.sleep(delay)
@@ -197,7 +193,7 @@ def main() -> None:
                     "source": source_tag,
                 }
             )
-            print(f"[ok {i+1}/{len(rows)}] {title[:40]}...")
+            print(f"[ok {i + 1}/{len(rows)}] {title[:40]}...")
         else:
             failed.append(key)
             print(f"[FAIL] {loc} / {d} / {a} / {title}")

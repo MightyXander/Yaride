@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from typing import Iterable
 
 from app.db import Database
 from app.geo_stops import haversine_km
@@ -72,9 +72,7 @@ class UserRepository(_BaseRepository):
                 )
             except sqlite3.IntegrityError as exc:
                 if "uq_users_dl_series" in str(exc) or "dl_series_number" in str(exc).lower():
-                    raise ValueError(
-                        "Это водительское удостоверение уже привязано к другому аккаунту."
-                    ) from exc
+                    raise ValueError("Это водительское удостоверение уже привязано к другому аккаунту.") from exc
                 raise
 
     def get_user(self, tg_user_id: int) -> sqlite3.Row | None:
@@ -89,9 +87,7 @@ class UserRepository(_BaseRepository):
     def set_driver_min_passenger_rating(self, tg_user_id: int, min_rating: float | None) -> None:
         """Минимальный средний рейтинг пассажира для автоматического принятия брони; None — без ограничения."""
         with self.db.transaction() as conn:
-            user = conn.execute(
-                "SELECT id, role FROM users WHERE tg_user_id = ?", (tg_user_id,)
-            ).fetchone()
+            user = conn.execute("SELECT id, role FROM users WHERE tg_user_id = ?", (tg_user_id,)).fetchone()
             if not user:
                 raise ValueError("Пользователь не зарегистрирован.")
             if user["role"] != "driver":
@@ -1010,8 +1006,7 @@ class RatingRepository(_BaseRepository):
                                 rated_tg_user_id=driver_tg,
                                 rated_name=driver_name,
                                 prompt_text=(
-                                    f"Поездка #{trip_id} состоялась. Оцените водителя «{driver_name}» "
-                                    f"(от 1 до 5):"
+                                    f"Поездка #{trip_id} состоялась. Оцените водителя «{driver_name}» (от 1 до 5):"
                                 ),
                             )
                         )
@@ -1039,10 +1034,7 @@ class RatingRepository(_BaseRepository):
                                 rater_tg_user_id=driver_tg,
                                 rated_tg_user_id=passenger_tg,
                                 rated_name=passenger_name,
-                                prompt_text=(
-                                    f"Поездка #{trip_id}. Оцените пассажира «{passenger_name}» "
-                                    f"(от 1 до 5):"
-                                ),
+                                prompt_text=(f"Поездка #{trip_id}. Оцените пассажира «{passenger_name}» (от 1 до 5):"),
                             )
                         )
 

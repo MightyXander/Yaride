@@ -10,10 +10,10 @@ from datetime import date as date_cls
 from datetime import datetime
 
 from aiogram import Bot, Dispatcher, F, Router
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.types import (
     CallbackQuery,
     ForceReply,
@@ -27,10 +27,10 @@ from aiogram_calendar import SimpleCalendar, SimpleCalendarCallback
 from aiogram_calendar.schemas import SimpleCalAct
 
 from app.chat_ui import ChatUiService
-from app.filters import RatingReviewReplyFilter
 from app.config import load_settings
 from app.db import Database
 from app.driver_license import normalize_dl_series_number, parse_expiry_date, validate_license_not_expired
+from app.filters import RatingReviewReplyFilter
 from app.formatting import format_trip_row, format_trip_when
 from app.navigation_flow import NavigationFlow
 from app.rating_worker import process_pending_rating_prompts
@@ -48,10 +48,7 @@ logger = logging.getLogger(__name__)
 router = Router()
 
 # Устаревшие inline-кнопки при пустом FSM
-STALE_CREATE_FLOW = (
-    "Сессия создания поездки устарела (часто это старая кнопка). "
-    "Начни заново: «Создать поездку»."
-)
+STALE_CREATE_FLOW = "Сессия создания поездки устарела (часто это старая кнопка). Начни заново: «Создать поездку»."
 STALE_SEARCH_FLOW = "Сессия поиска устарела. Начни заново: «Найти поездки»."
 
 
@@ -147,7 +144,9 @@ class YarideCalendar(SimpleCalendar):
                 days_row.append(
                     InlineKeyboardButton(
                         text=day_text,
-                        callback_data=SimpleCalendarCallback(act=SimpleCalAct.day, year=year, month=month, day=day).pack(),
+                        callback_data=SimpleCalendarCallback(
+                            act=SimpleCalAct.day, year=year, month=month, day=day
+                        ).pack(),
                     )
                 )
             kb.append(days_row)
@@ -346,9 +345,7 @@ def add_favorite_keyboard(trip_id: int) -> InlineKeyboardMarkup:
     return KEYBOARDS.add_favorite_keyboard(trip_id)
 
 
-def geo_suggested_start_stops_keyboard(
-    ranked: list[tuple[sqlite3.Row, float]], mode: str
-) -> InlineKeyboardMarkup:
+def geo_suggested_start_stops_keyboard(ranked: list[tuple[sqlite3.Row, float]], mode: str) -> InlineKeyboardMarkup:
     return KEYBOARDS.geo_suggested_start_stops_keyboard(ranked, mode)
 
 
@@ -570,8 +567,7 @@ async def reg_role(callback, state: FSMContext, repo: Repo) -> None:
         await state.clear()
         await edit_or_send_clean(
             callback,
-            "Профиль сохранён.\n"
-            "Условия сервиса: плата покрывает бензин и износ, сервис не является такси.",
+            "Профиль сохранён.\nУсловия сервиса: плата покрывает бензин и износ, сервис не является такси.",
             reply_markup=main_keyboard(repo, callback.from_user.id),
         )
         await callback.answer("Роль сохранена")
@@ -1169,7 +1165,9 @@ async def create_set_seats(callback: CallbackQuery, state: FSMContext, repo: Rep
         return
     await state.update_data(seats=seats)
     await state.set_state(TripCreate.price)
-    await edit_or_send_clean(callback, "Выбери цену поездки:", reply_markup=add_back_button(price_keyboard(), "create_seats"))
+    await edit_or_send_clean(
+        callback, "Выбери цену поездки:", reply_markup=add_back_button(price_keyboard(), "create_seats")
+    )
     await callback.answer()
 
 
@@ -1281,7 +1279,9 @@ async def cancel_booking_reason(message: Message, state: FSMContext, repo: Repo)
         await state.clear()
         return
     await state.clear()
-    await send_clean_message(message, f"Бронь #{booking_id} отменена.", reply_markup=main_keyboard(repo, message.from_user.id))
+    await send_clean_message(
+        message, f"Бронь #{booking_id} отменена.", reply_markup=main_keyboard(repo, message.from_user.id)
+    )
     try:
         await message.bot.send_message(
             payload["driver_tg_user_id"],
@@ -1441,7 +1441,9 @@ async def driver_reject_booking(callback: CallbackQuery, repo: Repo) -> None:
     except ValueError as exc:
         await callback.answer(str(exc), show_alert=True)
         return
-    await edit_or_send_clean(callback, "Бронь отклонена, место снова доступно.", reply_markup=main_keyboard(repo, callback.from_user.id))
+    await edit_or_send_clean(
+        callback, "Бронь отклонена, место снова доступно.", reply_markup=main_keyboard(repo, callback.from_user.id)
+    )
     await callback.answer("Отклонено")
     try:
         await callback.bot.send_message(
@@ -1511,7 +1513,9 @@ async def process_calendar_selection(
     if target == "search":
         if "start_point" not in data or "end_point" not in data:
             await state.clear()
-            await edit_or_send_clean(callback, STALE_SEARCH_FLOW, reply_markup=main_keyboard(repo, callback.from_user.id))
+            await edit_or_send_clean(
+                callback, STALE_SEARCH_FLOW, reply_markup=main_keyboard(repo, callback.from_user.id)
+            )
             await callback.answer()
             return
         await state.update_data(trip_date=iso_date)
@@ -1522,7 +1526,9 @@ async def process_calendar_selection(
         )
         await state.clear()
         if not trips:
-            await edit_or_send_clean(callback, "Подходящих поездок пока нет.", reply_markup=main_keyboard(repo, callback.from_user.id))
+            await edit_or_send_clean(
+                callback, "Подходящих поездок пока нет.", reply_markup=main_keyboard(repo, callback.from_user.id)
+            )
             await callback.answer()
             return
         text_lines = ["Доступные поездки:"]
@@ -1540,7 +1546,9 @@ async def process_calendar_selection(
     if target == "create":
         if "start_point" not in data or "end_point" not in data:
             await state.clear()
-            await edit_or_send_clean(callback, STALE_CREATE_FLOW, reply_markup=main_keyboard(repo, callback.from_user.id))
+            await edit_or_send_clean(
+                callback, STALE_CREATE_FLOW, reply_markup=main_keyboard(repo, callback.from_user.id)
+            )
             await callback.answer()
             return
         await state.update_data(trip_date=iso_date)

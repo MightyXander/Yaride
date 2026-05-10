@@ -1,0 +1,25 @@
+[project]
+name = "yaride"
+version = "0.1.0"
+description = "Yaride MVP: Telegram carpool bot for Yaroslavl"
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = ["yaride.db"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "B"]
+ignore = [
+    "E501", # long lines: line-length already set; Russian UI strings
+    "B008", # function call in default argument: aiogram style
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+docstring-code-format = false

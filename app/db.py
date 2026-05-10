@@ -131,10 +131,7 @@ class Database:
             self._fill_route_point_coordinates(conn)
 
     def _migrate_schema(self, conn: sqlite3.Connection) -> None:
-        columns = {
-            row["name"]
-            for row in conn.execute("PRAGMA table_info(trips)").fetchall()
-        }
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(trips)").fetchall()}
         if "trip_date" not in columns:
             conn.execute("ALTER TABLE trips ADD COLUMN trip_date TEXT NOT NULL DEFAULT ''")
         if "departure_time" not in columns:
@@ -157,14 +154,10 @@ class Database:
     def _migrate_users_min_passenger_rating(self, conn: sqlite3.Connection) -> None:
         cols = {row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
         if "min_passenger_rating" not in cols:
-            conn.execute(
-                "ALTER TABLE users ADD COLUMN min_passenger_rating REAL"
-            )
+            conn.execute("ALTER TABLE users ADD COLUMN min_passenger_rating REAL")
 
     def _migrate_route_points_schema(self, conn: sqlite3.Connection) -> None:
-        row = conn.execute(
-            "SELECT sql FROM sqlite_master WHERE type='table' AND name='route_points'"
-        ).fetchone()
+        row = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='route_points'").fetchone()
         if not row or not row["sql"]:
             return
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(route_points)").fetchall()}

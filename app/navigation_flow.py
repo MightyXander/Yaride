@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 
 class NavigationFlow:
@@ -277,7 +278,9 @@ class NavigationFlow:
             await self._edit_or_send_clean(
                 callback,
                 "Выбери дату поездки (календарь):",
-                reply_markup=self._add_back_button(await self._trip_calendar_factory().start_calendar(), "create_end_stop"),
+                reply_markup=self._add_back_button(
+                    await self._trip_calendar_factory().start_calendar(), "create_end_stop"
+                ),
             )
             await state.update_data(calendar_target="create")
         elif target == "create_time":
@@ -344,10 +347,14 @@ class NavigationFlow:
                 districts = repo.list_districts(str(locality))
                 if is_search:
                     await state.set_state(self.trip_search_state.start_district)
-                    await self._send_flow_step(message, f"{locality}: выбери район:", self._districts_keyboard("Sfd", districts))
+                    await self._send_flow_step(
+                        message, f"{locality}: выбери район:", self._districts_keyboard("Sfd", districts)
+                    )
                 else:
                     await state.set_state(self.trip_create_state.start_district)
-                    await self._send_flow_step(message, f"{locality}: выбери район:", self._districts_keyboard("Cfd", districts))
+                    await self._send_flow_step(
+                        message, f"{locality}: выбери район:", self._districts_keyboard("Cfd", districts)
+                    )
                 return
 
         if current.endswith("start_stop"):
@@ -461,7 +468,9 @@ class NavigationFlow:
         if current.endswith("departure_time"):
             await state.set_state(self.trip_create_state.trip_date)
             await state.update_data(calendar_target="create")
-            await self._send_flow_step(message, "Выбери дату поездки (календарь):", await self._trip_calendar_factory().start_calendar())
+            await self._send_flow_step(
+                message, "Выбери дату поездки (календарь):", await self._trip_calendar_factory().start_calendar()
+            )
             return
 
         if current.endswith("seats"):
