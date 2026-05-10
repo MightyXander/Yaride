@@ -1695,7 +1695,10 @@ async def push_main_menu_after_restart(bot: Bot, repo: Repo) -> None:
 
 async def run() -> None:
     global _REPO_FOR_KB, KEYBOARDS, _SETTINGS
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s [%(filename)s:%(lineno)d] %(message)s",
+    )
     settings = load_settings()
     _SETTINGS = settings
     KEYBOARDS = KeyboardFactory(settings=settings)
