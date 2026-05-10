@@ -22,9 +22,10 @@ MVP карпулинг-бота для Ярославля и ближайших 
 
 1. Установить зависимости:
    - `pip install -r requirements.txt`
-2. Создать `.env` на основе `.env.example`:
-   - `BOT_TOKEN=...`
-   - `DB_PATH=yaride.db`
+2. Создать `.env` на основе `.env.example` (см. файл в репозитории):
+   - `cp .env.example .env`
+   - Открыть `.env`, вписать `BOT_TOKEN=<токен от BotFather>`.
+   - При желании — переопределить UX-константы (см. `app/config.py`).
 3. Запустить:
    - `python main.py`
 
@@ -68,3 +69,31 @@ MVP карпулинг-бота для Ярославля и ближайших 
 - БД SQLite.
 - Без геолокации и GPS, только по заранее заданным точкам.
 - Без платежей (цена — только как компенсация расходов).
+
+## Разработка
+
+### Lint и format
+
+Перед коммитом:
+
+```bash
+py -3 -m ruff check .
+py -3 -m ruff format --check .
+```
+
+Авто-исправления:
+
+```bash
+py -3 -m ruff check . --fix
+py -3 -m ruff format .
+```
+
+### Запуск тестов
+
+```bash
+py -3 -m unittest discover -s tests -v
+```
+
+### Версия схемы БД
+
+Текущая версия — в `app.db.SCHEMA_VERSION`. Таблица `schema_version` в `yaride.db` хранит фактически применённую версию. Линейные миграции по версиям подключаются в Этапе 1 (см. `docs/superpowers/specs/2026-05-11-etap-1-data-resilience.md`).
