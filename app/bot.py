@@ -979,9 +979,25 @@ async def book_trip(callback, repo: Repo) -> None:
     try:
         booking_id = repo.create_booking(callback.from_user.id, trip_id)
     except ValueError as exc:
+        logger.info(
+            "critical action=%s tg_user_id=%s trip_id=%s outcome=%s reason=%s",
+            "book_trip",
+            callback.from_user.id,
+            trip_id,
+            "rejected",
+            str(exc),
+        )
         # Не перерисовываем сообщение при ошибке, чтобы inline-кнопки не пропадали.
         await callback.answer(str(exc), show_alert=True)
         return
+    logger.info(
+        "critical action=%s tg_user_id=%s trip_id=%s booking_id=%s outcome=%s",
+        "book_trip",
+        callback.from_user.id,
+        trip_id,
+        booking_id,
+        "success",
+    )
 
     trip_item = repo.get_trip_public_card(trip_id)
     await edit_or_send_clean(
@@ -1281,11 +1297,27 @@ async def cancel_booking_reason(message: Message, state: FSMContext, repo: Repo)
         return
     booking_id = int(booking_id_raw)
     try:
-        _, payload = repo.cancel_booking_by_passenger(message.from_user.id, booking_id, reason)
+        trip_id_c, payload = repo.cancel_booking_by_passenger(message.from_user.id, booking_id, reason)
     except ValueError as exc:
+        logger.info(
+            "critical action=%s tg_user_id=%s booking_id=%s outcome=%s reason=%s",
+            "cancel_booking_passenger",
+            message.from_user.id,
+            booking_id,
+            "rejected",
+            str(exc),
+        )
         await send_clean_message(message, str(exc))
         await state.clear()
         return
+    logger.info(
+        "critical action=%s tg_user_id=%s booking_id=%s trip_id=%s outcome=%s",
+        "cancel_booking_passenger",
+        message.from_user.id,
+        booking_id,
+        trip_id_c,
+        "success",
+    )
     await state.clear()
     await send_clean_message(
         message, f"Бронь #{booking_id} отменена.", reply_markup=main_keyboard(repo, message.from_user.id)
@@ -1447,8 +1479,24 @@ async def driver_reject_booking(callback: CallbackQuery, repo: Repo) -> None:
     try:
         payload = repo.reject_booking_by_driver(callback.from_user.id, booking_id)
     except ValueError as exc:
+        logger.info(
+            "critical action=%s tg_user_id=%s booking_id=%s outcome=%s reason=%s",
+            "reject_booking_driver",
+            callback.from_user.id,
+            booking_id,
+            "rejected",
+            str(exc),
+        )
         await callback.answer(str(exc), show_alert=True)
         return
+    logger.info(
+        "critical action=%s tg_user_id=%s booking_id=%s trip_id=%s outcome=%s",
+        "reject_booking_driver",
+        callback.from_user.id,
+        booking_id,
+        int(payload["trip_id"]),
+        "success",
+    )
     await edit_or_send_clean(
         callback, "Бронь отклонена, место снова доступно.", reply_markup=main_keyboard(repo, callback.from_user.id)
     )
@@ -1480,8 +1528,24 @@ async def driver_cancel_trip(callback: CallbackQuery, repo: Repo) -> None:
     try:
         passenger_tg_ids = repo.cancel_trip_by_driver(callback.from_user.id, trip_id)
     except ValueError as exc:
+        logger.info(
+            "critical action=%s tg_user_id=%s trip_id=%s outcome=%s reason=%s",
+            "cancel_trip_driver",
+            callback.from_user.id,
+            trip_id,
+            "rejected",
+            str(exc),
+        )
         await callback.answer(str(exc), show_alert=True)
         return
+    logger.info(
+        "critical action=%s tg_user_id=%s trip_id=%s outcome=%s passengers_notified=%s",
+        "cancel_trip_driver",
+        callback.from_user.id,
+        trip_id,
+        "success",
+        len(passenger_tg_ids),
+    )
     await edit_or_send_clean(
         callback,
         f"Поездка #{trip_id} отменена. Пассажиры с активной бронью уведомлены.",
@@ -1631,9 +1695,25 @@ async def complete_trip_rating_review(
     try:
         svc.submit(message.from_user.id, trip_id, rated_tg, stars, message.text)
     except ValueError as exc:
+        logger.info(
+            "critical action=%s tg_user_id=%s trip_id=%s outcome=%s reason=%s",
+            "submit_rating",
+            message.from_user.id,
+            trip_id,
+            "rejected",
+            str(exc),
+        )
         await state.update_data(rating_review_collect=None)
         await message.answer(str(exc))
         return
+    logger.info(
+        "critical action=%s tg_user_id=%s trip_id=%s stars=%s outcome=%s",
+        "submit_rating",
+        message.from_user.id,
+        trip_id,
+        stars,
+        "success",
+    )
     await state.update_data(rating_review_collect=None)
     await message.answer("Спасибо, оценка сохранена.")
 
@@ -1717,15 +1797,39 @@ async def run() -> None:
     await bot.delete_webhook(drop_pending_updates=True)
 
     async def rating_prompt_loop() -> None:
-        await asyncio.sleep(settings.rating_prompt_initial_delay_s)
-        while True:
-            try:
-                await process_pending_rating_prompts(bot, repo)
-            except Exception:
-                logger.exception("rating_prompt_loop")
-            await asyncio.sleep(settings.rating_prompt_interval_s)
+        try:
+            await asyncio.sleep(settings.rating_prompt_initial_delay_s)
+            while True:
+                try:
+                    await process_pending_rating_prompts(bot, repo)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.exception("rating_prompt_loop")
+                try:
+                    await asyncio.sleep(settings.rating_prompt_interval_s)
+                except asyncio.CancelledError:
+                    raise
+        except asyncio.CancelledError:
+            pass
 
-    asyncio.create_task(rating_prompt_loop())
-    asyncio.create_task(push_main_menu_after_restart(bot, repo))
+    background_tasks: set[asyncio.Task[None]] = set()
 
-    await dp.start_polling(bot)
+    def _spawn(coro):
+        task = asyncio.create_task(coro)
+        background_tasks.add(task)
+        task.add_done_callback(background_tasks.discard)
+        return task
+
+    _spawn(rating_prompt_loop())
+    _spawn(push_main_menu_after_restart(bot, repo))
+
+    try:
+        await dp.start_polling(bot)
+    finally:
+        for t in list(background_tasks):
+            t.cancel()
+        if background_tasks:
+            await asyncio.gather(*background_tasks, return_exceptions=True)
+        await bot.session.close()
+        db.close()

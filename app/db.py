@@ -1,140 +1,102 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
+from collections.abc import Iterator
 from contextlib import contextmanager
 
 from app.geo_stops import COORDINATE_OVERRIDES, lat_lng_for_stop
 from app.seeds import ROUTE_HIERARCHY
 
-SCHEMA_VERSION = 1
+# Текущая версия схемы кода. После этапа 0 было 1; этап 1 поднимает до 2 (миграция WAL/контур — без DDL).
+CURRENT_SCHEMA_VERSION = 2
+SCHEMA_VERSION = CURRENT_SCHEMA_VERSION
 
 
 class Database:
     def __init__(self, db_path: str) -> None:
         self.db_path = db_path
+        self._conn: sqlite3.Connection | None = None
+        self._lock = threading.RLock()
+
+    def _ensure_connection(self) -> sqlite3.Connection:
+        if self._conn is None:
+            conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            conn.row_factory = sqlite3.Row
+            conn.isolation_level = None
+            conn.execute("PRAGMA foreign_keys = ON;")
+            conn.execute("PRAGMA journal_mode = WAL;")
+            conn.execute("PRAGMA synchronous = NORMAL;")
+            conn.execute("PRAGMA busy_timeout = 5000;")
+            self._conn = conn
+        return self._conn
 
     def connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON;")
-        return conn
+        """Обратная совместимость: возвращает постоянное соединение."""
+        return self._ensure_connection()
 
-    def _ensure_extended_schema(self, conn: sqlite3.Connection) -> None:
-        """Таблицы из поздних миграций должны существовать всегда.
-
-        На старых или частично созданных БД init_schema мог не дойти до блока миграций;
-        без этого падают rating_worker, избранное и очистка чата.
-        """
-        core_cnt = conn.execute(
-            """
-            SELECT COUNT(DISTINCT name) FROM sqlite_master
-            WHERE type='table' AND name IN ('trips', 'users', 'route_points')
-            """
-        ).fetchone()[0]
-        if int(core_cnt) < 3:
-            return
-        names = {
-            row["name"]
-            for row in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name IN "
-                "('favorite_routes', 'trip_ratings', 'rating_prompts_sent', 'bot_chat_messages')"
-            ).fetchall()
-        }
-        if "favorite_routes" not in names or "trip_ratings" not in names or "rating_prompts_sent" not in names:
-            self._migrate_favorites_and_ratings(conn)
-        if "bot_chat_messages" not in names:
-            self._migrate_bot_chat_messages(conn)
-        self._migrate_trip_ratings_review_text(conn)
-        self._migrate_route_points_latlng(conn)
-        self._migrate_route_hierarchy_simplify(conn)
-        self._fill_route_point_coordinates(conn)
+    def close(self) -> None:
+        with self._lock:
+            if self._conn is not None:
+                self._conn.close()
+                self._conn = None
 
     @contextmanager
-    def transaction(self):
-        conn = self.connect()
-        try:
-            self._ensure_extended_schema(conn)
-            yield conn
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            conn.close()
+    def transaction(self) -> Iterator[sqlite3.Connection]:
+        with self._lock:
+            conn = self._ensure_connection()
+            conn.execute("BEGIN")
+            try:
+                yield conn
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+
+    @contextmanager
+    def immediate_transaction(self) -> Iterator[sqlite3.Connection]:
+        with self._lock:
+            conn = self._ensure_connection()
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                yield conn
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
 
     def init_schema(self) -> None:
-        with self.transaction() as conn:
-            conn.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS users (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    tg_user_id INTEGER UNIQUE NOT NULL,
-                    name TEXT NOT NULL,
-                    username TEXT,
-                    role TEXT CHECK(role IN ('driver', 'passenger')) NOT NULL,
-                    phone TEXT,
-                    rating_avg REAL NOT NULL DEFAULT 0.0,
-                    rating_count INTEGER NOT NULL DEFAULT 0,
-                    trips_driver_count INTEGER NOT NULL DEFAULT 0,
-                    trips_passenger_count INTEGER NOT NULL DEFAULT 0,
-                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-                );
+        with self._lock:
+            conn = self._ensure_connection()
+            self._ensure_schema_version_table(conn)
+            row = conn.execute("SELECT version FROM schema_version WHERE id = 1").fetchone()
+            if row is None:
+                conn.execute("BEGIN IMMEDIATE")
+                try:
+                    self._bootstrap_full_schema(conn)
+                    conn.execute(
+                        "INSERT INTO schema_version(id, version) VALUES (1, ?)",
+                        (CURRENT_SCHEMA_VERSION,),
+                    )
+                    conn.commit()
+                except Exception:
+                    conn.rollback()
+                    raise
+                return
 
-                CREATE TABLE IF NOT EXISTS route_points (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    locality TEXT NOT NULL,
-                    district TEXT NOT NULL DEFAULT '',
-                    admin_area TEXT NOT NULL DEFAULT '',
-                    title TEXT NOT NULL,
-                    kind TEXT NOT NULL DEFAULT 'stop' CHECK(kind IN ('stop', 'locality'))
-                );
+            v = int(row["version"])
+            while v < CURRENT_SCHEMA_VERSION:
+                conn.execute("BEGIN IMMEDIATE")
+                try:
+                    self._apply_migration(conn, v, v + 1)
+                    conn.execute("UPDATE schema_version SET version = ? WHERE id = 1", (v + 1,))
+                    conn.commit()
+                except Exception:
+                    conn.rollback()
+                    raise
+                v += 1
 
-                CREATE TABLE IF NOT EXISTS trips (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    driver_id INTEGER NOT NULL,
-                    start_point_id INTEGER NOT NULL,
-                    end_point_id INTEGER NOT NULL,
-                    trip_date TEXT NOT NULL DEFAULT '',
-                    departure_time TEXT NOT NULL DEFAULT '',
-                    time_slot TEXT NOT NULL,
-                    price_rub INTEGER NOT NULL,
-                    seats_total INTEGER NOT NULL,
-                    seats_booked INTEGER NOT NULL DEFAULT 0,
-                    status TEXT CHECK(status IN ('open', 'cancelled', 'completed')) NOT NULL DEFAULT 'open',
-                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY(driver_id) REFERENCES users(id),
-                    FOREIGN KEY(start_point_id) REFERENCES route_points(id),
-                    FOREIGN KEY(end_point_id) REFERENCES route_points(id)
-                );
-
-                CREATE TABLE IF NOT EXISTS bookings (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    trip_id INTEGER NOT NULL,
-                    passenger_id INTEGER NOT NULL,
-                    status TEXT CHECK(status IN ('active', 'cancelled_by_passenger', 'cancelled_by_driver')) NOT NULL DEFAULT 'active',
-                    cancel_reason TEXT,
-                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    cancelled_at TEXT,
-                    UNIQUE(trip_id, passenger_id),
-                    FOREIGN KEY(trip_id) REFERENCES trips(id),
-                    FOREIGN KEY(passenger_id) REFERENCES users(id)
-                );
-                """
-            )
-            self._migrate_schema(conn)
-            self._migrate_users_dl_columns(conn)
-            self._migrate_users_min_passenger_rating(conn)
-            self._migrate_route_points_schema(conn)
-            self._migrate_route_points_latlng(conn)
-            self._migrate_favorites_and_ratings(conn)
-            self._migrate_bot_chat_messages(conn)
-            self._migrate_trip_ratings_review_text(conn)
-            self._seed_route_points(conn)
-            self._fill_route_point_coordinates(conn)
-            self._ensure_schema_version(conn)
-
-    def _ensure_schema_version(self, conn: sqlite3.Connection) -> None:
-        """Создаёт таблицу schema_version и записывает текущую версию, если её ещё нет."""
+    def _ensure_schema_version_table(self, conn: sqlite3.Connection) -> None:
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS schema_version (
@@ -143,12 +105,86 @@ class Database:
             )
             """
         )
-        row = conn.execute("SELECT version FROM schema_version WHERE id = 1").fetchone()
-        if row is None:
-            conn.execute(
-                "INSERT INTO schema_version(id, version) VALUES (1, ?)",
-                (SCHEMA_VERSION,),
-            )
+
+    def _apply_migration(self, conn: sqlite3.Connection, from_v: int, to_v: int) -> None:
+        if from_v == 1 and to_v == 2:
+            self._migrate_v1_to_v2(conn)
+            return
+        raise RuntimeError(f"No migration defined from v{from_v} to v{to_v}")
+
+    def _migrate_v1_to_v2(self, conn: sqlite3.Connection) -> None:
+        """Один раз при переходе с этапа 0: применить правки иерархии route_points (раньше дёргалось на каждой транзакции)."""
+        self._migrate_route_hierarchy_simplify(conn)
+
+    def _bootstrap_full_schema(self, conn: sqlite3.Connection) -> None:
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tg_user_id INTEGER UNIQUE NOT NULL,
+                name TEXT NOT NULL,
+                username TEXT,
+                role TEXT CHECK(role IN ('driver', 'passenger')) NOT NULL,
+                phone TEXT,
+                rating_avg REAL NOT NULL DEFAULT 0.0,
+                rating_count INTEGER NOT NULL DEFAULT 0,
+                trips_driver_count INTEGER NOT NULL DEFAULT 0,
+                trips_passenger_count INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS route_points (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                locality TEXT NOT NULL,
+                district TEXT NOT NULL DEFAULT '',
+                admin_area TEXT NOT NULL DEFAULT '',
+                title TEXT NOT NULL,
+                kind TEXT NOT NULL DEFAULT 'stop' CHECK(kind IN ('stop', 'locality'))
+            );
+
+            CREATE TABLE IF NOT EXISTS trips (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                driver_id INTEGER NOT NULL,
+                start_point_id INTEGER NOT NULL,
+                end_point_id INTEGER NOT NULL,
+                trip_date TEXT NOT NULL DEFAULT '',
+                departure_time TEXT NOT NULL DEFAULT '',
+                time_slot TEXT NOT NULL,
+                price_rub INTEGER NOT NULL,
+                seats_total INTEGER NOT NULL,
+                seats_booked INTEGER NOT NULL DEFAULT 0,
+                status TEXT CHECK(status IN ('open', 'cancelled', 'completed')) NOT NULL DEFAULT 'open',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(driver_id) REFERENCES users(id),
+                FOREIGN KEY(start_point_id) REFERENCES route_points(id),
+                FOREIGN KEY(end_point_id) REFERENCES route_points(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS bookings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trip_id INTEGER NOT NULL,
+                passenger_id INTEGER NOT NULL,
+                status TEXT CHECK(status IN ('active', 'cancelled_by_passenger', 'cancelled_by_driver')) NOT NULL DEFAULT 'active',
+                cancel_reason TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                cancelled_at TEXT,
+                UNIQUE(trip_id, passenger_id),
+                FOREIGN KEY(trip_id) REFERENCES trips(id),
+                FOREIGN KEY(passenger_id) REFERENCES users(id)
+            );
+            """
+        )
+        self._migrate_schema(conn)
+        self._migrate_users_dl_columns(conn)
+        self._migrate_users_min_passenger_rating(conn)
+        self._migrate_route_points_schema(conn)
+        self._migrate_route_points_latlng(conn)
+        self._migrate_favorites_and_ratings(conn)
+        self._migrate_bot_chat_messages(conn)
+        self._migrate_trip_ratings_review_text(conn)
+        self._seed_route_points(conn)
+        self._migrate_route_hierarchy_simplify(conn)
+        self._fill_route_point_coordinates(conn)
 
     def _migrate_schema(self, conn: sqlite3.Connection) -> None:
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(trips)").fetchall()}
@@ -188,7 +224,6 @@ class Database:
             )
             return
 
-        # Старый формат без locality: только ALTER+UPDATE — без DROP (есть FK из trips).
         if "locality" not in cols:
             conn.execute("ALTER TABLE route_points ADD COLUMN locality TEXT")
             conn.execute(
@@ -277,7 +312,6 @@ class Database:
             conn.execute("ALTER TABLE trip_ratings ADD COLUMN review_text TEXT")
 
     def _migrate_route_hierarchy_simplify(self, conn: sqlite3.Connection) -> None:
-        """Подтянуть старые строки route_points к упрощённой иерархии из seeds (идемпотентно)."""
         cols = {row["name"] for row in conn.execute("PRAGMA table_info(route_points)").fetchall()}
         if not cols or "admin_area" not in cols:
             return

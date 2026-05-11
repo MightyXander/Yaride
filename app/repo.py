@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import sqlite3
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -8,6 +9,8 @@ from datetime import date, datetime, timedelta
 from app.db import Database
 from app.geo_stops import haversine_km
 from app.seeds import ROUTE_HIERARCHY
+
+logger = logging.getLogger(__name__)
 
 
 class _BaseRepository:
@@ -446,7 +449,7 @@ class TripRepository(_BaseRepository):
 
     def cancel_trip_by_driver(self, tg_driver_id: int, trip_id: int) -> list[int]:
         """Отменяет открытую поездку и активные брони. Возвращает tg_user_id пассажиров для уведомлений."""
-        with self.db.transaction() as conn:
+        with self.db.immediate_transaction() as conn:
             trip = conn.execute(
                 """
                 SELECT t.id, t.status, u.tg_user_id
@@ -491,7 +494,7 @@ class TripRepository(_BaseRepository):
 
 class BookingRepository(_BaseRepository):
     def create_booking(self, tg_passenger_id: int, trip_id: int) -> int:
-        with self.db.transaction() as conn:
+        with self.db.immediate_transaction() as conn:
             passenger_id = self._get_internal_user_id(conn, tg_passenger_id)
             trip = conn.execute(
                 """
@@ -512,8 +515,6 @@ class BookingRepository(_BaseRepository):
                 raise ValueError("Нельзя забронировать поездку: время отправления уже прошло.")
             if trip["driver_tg_user_id"] == tg_passenger_id:
                 raise ValueError("Нельзя бронировать свою поездку.")
-            if trip["seats_booked"] >= trip["seats_total"]:
-                raise ValueError("Свободных мест нет.")
 
             passenger = conn.execute(
                 "SELECT rating_avg, rating_count FROM users WHERE id = ?",
@@ -552,7 +553,18 @@ class BookingRepository(_BaseRepository):
                 cur = conn.execute("INSERT INTO bookings(trip_id, passenger_id) VALUES (?, ?)", (trip_id, passenger_id))
                 booking_id = int(cur.lastrowid)
 
-            conn.execute("UPDATE trips SET seats_booked = seats_booked + 1 WHERE id = ?", (trip_id,))
+            cur = conn.execute(
+                """
+                UPDATE trips
+                SET seats_booked = seats_booked + 1
+                WHERE id = ?
+                  AND status = 'open'
+                  AND seats_booked < seats_total
+                """,
+                (trip_id,),
+            )
+            if cur.rowcount != 1:
+                raise ValueError("Свободных мест нет.")
             return booking_id
 
     def list_passenger_bookings(self, tg_passenger_id: int) -> list[sqlite3.Row]:
@@ -616,7 +628,7 @@ class BookingRepository(_BaseRepository):
         booking_id: int,
         reason: str,
     ) -> tuple[int, dict[str, object]]:
-        with self.db.transaction() as conn:
+        with self.db.immediate_transaction() as conn:
             passenger_id = self._get_internal_user_id(conn, tg_passenger_id)
             booking = conn.execute(
                 """
@@ -656,10 +668,21 @@ class BookingRepository(_BaseRepository):
                 """,
                 (cleaned_reason, booking_id),
             )
-            conn.execute(
-                "UPDATE trips SET seats_booked = CASE WHEN seats_booked > 0 THEN seats_booked - 1 ELSE 0 END WHERE id = ?",
+            cur = conn.execute(
+                """
+                UPDATE trips
+                SET seats_booked = seats_booked - 1
+                WHERE id = ? AND seats_booked > 0
+                """,
                 (booking["trip_id"],),
             )
+            if cur.rowcount != 1:
+                logger.error(
+                    "invariant seats_booked decrement failed trip_id=%s booking_id=%s",
+                    booking["trip_id"],
+                    booking_id,
+                )
+                raise RuntimeError("Не удалось обновить занятость мест (несогласованное состояние).")
 
             payload: dict[str, object] = {
                 "driver_tg_user_id": int(booking["driver_tg_user_id"]),
@@ -695,7 +718,7 @@ class BookingRepository(_BaseRepository):
             ).fetchall()
 
     def reject_booking_by_driver(self, tg_driver_id: int, booking_id: int) -> dict[str, object]:
-        with self.db.transaction() as conn:
+        with self.db.immediate_transaction() as conn:
             booking = conn.execute(
                 """
                 SELECT
@@ -733,14 +756,21 @@ class BookingRepository(_BaseRepository):
                 """,
                 (booking_id,),
             )
-            conn.execute(
+            cur = conn.execute(
                 """
                 UPDATE trips
-                SET seats_booked = CASE WHEN seats_booked > 0 THEN seats_booked - 1 ELSE 0 END
-                WHERE id = ?
+                SET seats_booked = seats_booked - 1
+                WHERE id = ? AND seats_booked > 0
                 """,
                 (booking["trip_id"],),
             )
+            if cur.rowcount != 1:
+                logger.error(
+                    "invariant seats_booked decrement failed trip_id=%s booking_id=%s",
+                    booking["trip_id"],
+                    booking_id,
+                )
+                raise RuntimeError("Не удалось обновить занятость мест (несогласованное состояние).")
             return {
                 "passenger_tg_user_id": int(booking["passenger_tg_user_id"]),
                 "trip_id": int(booking["trip_id"]),
