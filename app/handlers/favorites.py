@@ -14,13 +14,13 @@ router = Router()
 
 @router.message(F.text == "Избранные маршруты")
 async def favorite_routes_menu(message: Message, repo: Repo) -> None:
-    from app.bot import favorite_routes_keyboard, send_clean_message
+    from app.bot_support import favorite_routes_keyboard, send_clean_message
 
-    user = repo.get_user(message.from_user.id)
+    user = repo.users.get_user(message.from_user.id)
     if not user:
         await send_clean_message(message, "Сначала зарегистрируйся через /start.")
         return
-    rows = repo.list_favorite_routes(message.from_user.id)
+    rows = repo.favorites.list_favorites(message.from_user.id)
     if not rows:
         await send_clean_message(
             message,
@@ -36,12 +36,12 @@ async def favorite_routes_menu(message: Message, repo: Repo) -> None:
 
 @router.callback_query(F.data.startswith("fav_add:"))
 async def fav_add(callback: CallbackQuery, repo: Repo) -> None:
-    if not repo.get_user(callback.from_user.id):
+    if not repo.users.get_user(callback.from_user.id):
         await callback.answer("Сначала /start.", show_alert=True)
         return
     tid = int(callback.data.split(":")[1])
     try:
-        added = repo.add_favorite_from_trip(callback.from_user.id, tid)
+        added = repo.favorites.add_favorite_from_trip(callback.from_user.id, tid)
     except ValueError:
         await callback.answer("Поездка не найдена.", show_alert=True)
         return
@@ -50,10 +50,11 @@ async def fav_add(callback: CallbackQuery, repo: Repo) -> None:
 
 @router.callback_query(F.data.startswith("fav_route:"))
 async def favorite_route_pick_date(callback: CallbackQuery, state: FSMContext, repo: Repo) -> None:
-    from app.bot import add_back_button, edit_or_send_clean, trip_calendar
+    from app.bot_support import add_back_button, edit_or_send_clean
+    from app.yaride_calendar import trip_calendar
 
     fid = int(callback.data.split(":")[1])
-    row = repo.get_favorite_route_owned(callback.from_user.id, fid)
+    row = repo.favorites.get_favorite_owned(callback.from_user.id, fid)
     if not row:
         await callback.answer("Маршрут не найден.", show_alert=True)
         return

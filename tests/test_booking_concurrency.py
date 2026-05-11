@@ -67,7 +67,7 @@ class BookingConcurrencyTests(TestCase):
 
                 def try_book(tg: int) -> tuple[int, str | None]:
                     try:
-                        bid = repo.create_booking(tg, trip_id)
+                        bid = repo.bookings.create_booking(tg, trip_id)
                         return bid, None
                     except ValueError as exc:
                         return -1, str(exc)

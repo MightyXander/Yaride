@@ -6,6 +6,8 @@
 
 Yaride MVP is a Telegram carpool bot (aiogram 3.x) for Yaroslavl, Russia. It is a single Python service using SQLite for persistence. No Docker, no external databases, no microservices.
 
+**Layout:** `main.py` runs `app.bot.run`. Thin entry `app/bot.py` wires `build_container()`, `bot_support.configure()` (TripFlowOrchestrator + NavigationFlow + UI helpers), attaches routers from `app/handlers/*.py`, and starts polling. Shared Telegram helpers and `FLOW_MODE_CFG` live in `app/bot_support.py`. Domain handlers import lazily from `app.bot_support` to avoid cycles. Data access uses `Repo` as a thin holder of `users`, `routes`, `trips`, `bookings`, `favorites`, `ratings` sub-repositories (no facade methods on `Repo`).
+
 ### Running the application
 
 ```bash

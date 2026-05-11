@@ -16,13 +16,13 @@ logger = logging.getLogger(__name__)
 
 @router.message(F.text == "История поездок")
 async def my_trips(message: Message, repo: Repo) -> None:
-    from app.bot import send_clean_message
+    from app.bot_support import send_clean_message
 
-    user = repo.get_user(message.from_user.id)
+    user = repo.users.get_user(message.from_user.id)
     if not user:
         await send_clean_message(message, "Сначала зарегистрируйся через /start.")
         return
-    trips = repo.list_driver_trips(message.from_user.id)
+    trips = repo.trips.list_driver_trips(message.from_user.id)
     if not trips:
         await send_clean_message(message, "У тебя пока нет созданных поездок.")
         return
@@ -38,20 +38,20 @@ async def my_trips(message: Message, repo: Repo) -> None:
 
 @router.message(F.text == "Управление")
 async def driver_manage_entry(message: Message, repo: Repo) -> None:
-    from app.bot import (
+    from app.bot_support import (
         driver_manage_root_keyboard,
         driver_rating_threshold_keyboard,
         send_clean_message,
     )
 
-    user = repo.get_user(message.from_user.id)
+    user = repo.users.get_user(message.from_user.id)
     if not user:
         await send_clean_message(message, "Сначала зарегистрируйся через /start.")
         return
     if user["role"] != "driver":
         await send_clean_message(message, "Раздел «Управление» только для водителей.")
         return
-    open_trips = [t for t in repo.list_driver_trips(message.from_user.id) if t["status"] == "open"]
+    open_trips = [t for t in repo.trips.list_driver_trips(message.from_user.id) if t["status"] == "open"]
     cur = user["min_passenger_rating"] if "min_passenger_rating" in user.keys() else None
     thr_line = (
         f"Авто-отказ новым броням: средний рейтинг пассажира ниже {float(cur):.1f} "
@@ -75,7 +75,7 @@ async def driver_manage_entry(message: Message, repo: Repo) -> None:
 
 @router.callback_query(F.data.startswith("manage_trip:"))
 async def driver_manage_trip_detail(callback: CallbackQuery, repo: Repo) -> None:
-    from app.bot import (
+    from app.bot_support import (
         _passenger_rating_hint,
         driver_trip_detail_keyboard,
         edit_or_send_clean,
@@ -86,16 +86,16 @@ async def driver_manage_trip_detail(callback: CallbackQuery, repo: Repo) -> None
     except (ValueError, IndexError):
         await callback.answer("Некорректные данные.", show_alert=True)
         return
-    user = repo.get_user(callback.from_user.id)
+    user = repo.users.get_user(callback.from_user.id)
     if not user or user["role"] != "driver":
         await callback.answer("Только для водителя.", show_alert=True)
         return
-    trips = repo.list_driver_trips(callback.from_user.id)
+    trips = repo.trips.list_driver_trips(callback.from_user.id)
     trip = next((t for t in trips if int(t["id"]) == trip_id), None)
     if not trip or trip["status"] != "open":
         await callback.answer("Поездка недоступна.", show_alert=True)
         return
-    bookings = repo.list_bookings_for_driver_trip(callback.from_user.id, trip_id)
+    bookings = repo.bookings.list_bookings_for_driver_trip(callback.from_user.id, trip_id)
     free = int(trip["seats_total"]) - int(trip["seats_booked"])
     lines = [
         f"Поездка #{trip_id}: {trip['start_title']} → {trip['end_title']}",
@@ -119,9 +119,9 @@ async def driver_manage_trip_detail(callback: CallbackQuery, repo: Repo) -> None
 
 @router.callback_query(F.data == "thr_menu")
 async def driver_thr_menu(callback: CallbackQuery, repo: Repo) -> None:
-    from app.bot import driver_rating_threshold_keyboard, edit_or_send_clean
+    from app.bot_support import driver_rating_threshold_keyboard, edit_or_send_clean
 
-    user = repo.get_user(callback.from_user.id)
+    user = repo.users.get_user(callback.from_user.id)
     if not user or user["role"] != "driver":
         await callback.answer("Только для водителя.", show_alert=True)
         return
@@ -142,18 +142,18 @@ async def driver_thr_menu(callback: CallbackQuery, repo: Repo) -> None:
 
 @router.callback_query(F.data.startswith("thr_set:"))
 async def driver_thr_set(callback: CallbackQuery, repo: Repo) -> None:
-    from app.bot import edit_or_send_clean, main_keyboard
+    from app.bot_support import edit_or_send_clean, main_keyboard
 
-    user = repo.get_user(callback.from_user.id)
+    user = repo.users.get_user(callback.from_user.id)
     if not user or user["role"] != "driver":
         await callback.answer("Только для водителя.", show_alert=True)
         return
     raw = callback.data.split(":", 1)[1]
     try:
         if raw == "off":
-            repo.set_driver_min_passenger_rating(callback.from_user.id, None)
+            repo.users.set_driver_min_passenger_rating(callback.from_user.id, None)
         else:
-            repo.set_driver_min_passenger_rating(callback.from_user.id, float(raw))
+            repo.users.set_driver_min_passenger_rating(callback.from_user.id, float(raw))
     except ValueError as exc:
         await callback.answer(str(exc), show_alert=True)
         return
@@ -163,19 +163,19 @@ async def driver_thr_set(callback: CallbackQuery, repo: Repo) -> None:
 
 @router.callback_query(F.data.startswith("reject_bk:"))
 async def driver_reject_booking(callback: CallbackQuery, repo: Repo) -> None:
-    from app.bot import edit_or_send_clean, main_keyboard
+    from app.bot_support import edit_or_send_clean, main_keyboard
 
     try:
         booking_id = int(callback.data.split(":", 1)[1])
     except (ValueError, IndexError):
         await callback.answer("Ошибка данных.", show_alert=True)
         return
-    user = repo.get_user(callback.from_user.id)
+    user = repo.users.get_user(callback.from_user.id)
     if not user or user["role"] != "driver":
         await callback.answer("Только для водителя.", show_alert=True)
         return
     try:
-        payload = repo.reject_booking_by_driver(callback.from_user.id, booking_id)
+        payload = repo.bookings.reject_booking_by_driver(callback.from_user.id, booking_id)
     except ValueError as exc:
         logger.info(
             "critical action=%s tg_user_id=%s booking_id=%s outcome=%s reason=%s",
@@ -214,19 +214,19 @@ async def driver_reject_booking(callback: CallbackQuery, repo: Repo) -> None:
 
 @router.callback_query(F.data.startswith("cancel_trip:"))
 async def driver_cancel_trip(callback: CallbackQuery, repo: Repo) -> None:
-    from app.bot import edit_or_send_clean, main_keyboard
+    from app.bot_support import edit_or_send_clean, main_keyboard
 
     try:
         trip_id = int(callback.data.split(":", 1)[1])
     except (ValueError, IndexError):
         await callback.answer("Ошибка данных.", show_alert=True)
         return
-    user = repo.get_user(callback.from_user.id)
+    user = repo.users.get_user(callback.from_user.id)
     if not user or user["role"] != "driver":
         await callback.answer("Только для водителя.", show_alert=True)
         return
     try:
-        passenger_tg_ids = repo.cancel_trip_by_driver(callback.from_user.id, trip_id)
+        passenger_tg_ids = repo.trips.cancel_trip_by_driver(callback.from_user.id, trip_id)
     except ValueError as exc:
         logger.info(
             "critical action=%s tg_user_id=%s trip_id=%s outcome=%s reason=%s",

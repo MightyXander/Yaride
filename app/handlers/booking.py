@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 @router.callback_query(F.data.startswith("book:"))
 async def book_trip(callback: CallbackQuery, repo: Repo) -> None:
-    from app.bot import (
+    from app.bot_support import (
         add_favorite_keyboard,
         edit_or_send_clean,
         main_keyboard,
@@ -26,7 +26,7 @@ async def book_trip(callback: CallbackQuery, repo: Repo) -> None:
     )
 
     trip_id = int(callback.data.split(":")[1])
-    user = repo.get_user(callback.from_user.id)
+    user = repo.users.get_user(callback.from_user.id)
     if not user:
         await callback.answer("Сначала зарегистрируйся через /start.", show_alert=True)
         return
@@ -34,7 +34,7 @@ async def book_trip(callback: CallbackQuery, repo: Repo) -> None:
         await callback.answer("Бронировать поездки может только пассажир.", show_alert=True)
         return
     try:
-        booking_id = repo.create_booking(callback.from_user.id, trip_id)
+        booking_id = repo.bookings.create_booking(callback.from_user.id, trip_id)
     except ValueError as exc:
         logger.info(
             "critical action=%s tg_user_id=%s trip_id=%s outcome=%s reason=%s",
@@ -55,7 +55,7 @@ async def book_trip(callback: CallbackQuery, repo: Repo) -> None:
         "success",
     )
 
-    trip_item = repo.get_trip_public_card(trip_id)
+    trip_item = repo.trips.get_trip_public_card(trip_id)
     await edit_or_send_clean(
         callback,
         f"Бронь #{booking_id} создана.\n\nДобавить этот маршрут в избранное?",
@@ -91,18 +91,18 @@ async def book_trip(callback: CallbackQuery, repo: Repo) -> None:
 
 @router.message(F.text == "Мои брони")
 async def my_bookings(message: Message, repo: Repo) -> None:
-    from app.bot import (
+    from app.bot_support import (
         cancel_booking_keyboard,
         flow_keyboard,
         send_clean_message,
         send_flow_step,
     )
 
-    user = repo.get_user(message.from_user.id)
+    user = repo.users.get_user(message.from_user.id)
     if not user:
         await send_clean_message(message, "Сначала зарегистрируйся через /start.")
         return
-    bookings = repo.list_passenger_bookings(message.from_user.id)
+    bookings = repo.bookings.list_passenger_bookings(message.from_user.id)
     if not bookings:
         await send_clean_message(message, "У тебя пока нет броней.", reply_markup=flow_keyboard())
         return
@@ -119,10 +119,10 @@ async def my_bookings(message: Message, repo: Repo) -> None:
 
 @router.callback_query(F.data.startswith("cancel_booking:"))
 async def cancel_booking_start(callback: CallbackQuery, state: FSMContext, repo: Repo) -> None:
-    from app.bot import edit_or_send_clean
+    from app.bot_support import edit_or_send_clean
 
     booking_id = int(callback.data.split(":")[1])
-    booking = repo.get_booking_for_cancel(callback.from_user.id, booking_id)
+    booking = repo.bookings.get_booking_for_cancel(callback.from_user.id, booking_id)
     if not booking:
         await callback.answer("Бронь не найдена.", show_alert=True)
         return
@@ -137,7 +137,7 @@ async def cancel_booking_start(callback: CallbackQuery, state: FSMContext, repo:
 
 @router.message(CancelBooking.waiting_reason)
 async def cancel_booking_reason(message: Message, state: FSMContext, repo: Repo) -> None:
-    from app.bot import main_keyboard, send_clean_message
+    from app.bot_support import main_keyboard, send_clean_message
 
     reason = (message.text or "").strip()
     if len(reason) < 3:
@@ -155,7 +155,7 @@ async def cancel_booking_reason(message: Message, state: FSMContext, repo: Repo)
         return
     booking_id = int(booking_id_raw)
     try:
-        trip_id_c, payload = repo.cancel_booking_by_passenger(message.from_user.id, booking_id, reason)
+        trip_id_c, payload = repo.bookings.cancel_booking_by_passenger(message.from_user.id, booking_id, reason)
     except ValueError as exc:
         logger.info(
             "critical action=%s tg_user_id=%s booking_id=%s outcome=%s reason=%s",

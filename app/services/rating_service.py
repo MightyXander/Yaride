@@ -19,7 +19,7 @@ class RatingService:
         raw_review: str | None,
     ) -> None:
         review = normalize_review_text(raw_review)
-        self._repo.submit_trip_rating(
+        self._repo.ratings.submit_rating(
             rater_tg_user_id,
             trip_id,
             rated_tg_user_id,

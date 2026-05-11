@@ -32,7 +32,7 @@ def build_container() -> Container:
     keyboards = KeyboardFactory(settings=settings)
 
     def main_keyboard_provider(tg_user_id: int):
-        user = repo.get_user(tg_user_id)
+        user = repo.users.get_user(tg_user_id)
         is_driver = user is not None and user["role"] == "driver"
         return keyboards.main_keyboard(is_driver=is_driver)
 

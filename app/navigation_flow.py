@@ -54,7 +54,7 @@ class NavigationFlow:
             return
 
         if target == "switch_role_start":
-            user = repo.get_user(callback.from_user.id)
+            user = repo.users.get_user(callback.from_user.id)
             if not user:
                 await state.clear()
                 await self._edit_or_send_clean(
@@ -75,7 +75,7 @@ class NavigationFlow:
 
         if target == "search_start_locality":
             await state.set_state(self.trip_search_state.start_locality)
-            locs = repo.list_localities()
+            locs = repo.routes.list_localities()
             await self._edit_or_send_clean(
                 callback,
                 "Откуда едем: выбери населённый пункт или город:",
@@ -85,7 +85,7 @@ class NavigationFlow:
             locality = data.get("start_locality")
             if locality:
                 await state.set_state(self.trip_search_state.start_district)
-                districts = repo.list_districts(str(locality))
+                districts = repo.routes.list_districts(str(locality))
                 await self._edit_or_send_clean(
                     callback,
                     f"{locality}: выбери район:",
@@ -99,7 +99,7 @@ class NavigationFlow:
             district = data.get("start_district", "")
             if locality is not None:
                 await state.set_state(self.trip_search_state.start_admin_area)
-                admin_areas = repo.list_admin_areas(str(locality), str(district))
+                admin_areas = repo.routes.list_admin_areas(str(locality), str(district))
                 await self._edit_or_send_clean(
                     callback,
                     "Выбери административный район:",
@@ -114,7 +114,7 @@ class NavigationFlow:
             admin_area = data.get("start_admin_area", "")
             if locality is not None:
                 await state.set_state(self.trip_search_state.start_stop)
-                stops = repo.list_stops(str(locality), str(district), str(admin_area))
+                stops = repo.routes.list_stops(str(locality), str(district), str(admin_area))
                 await self._edit_or_send_clean(
                     callback,
                     "Выбери остановку посадки:",
@@ -125,7 +125,7 @@ class NavigationFlow:
                 )
         elif target == "search_end_locality":
             await state.set_state(self.trip_search_state.end_locality)
-            locs = repo.list_localities()
+            locs = repo.routes.list_localities()
             await self._edit_or_send_clean(
                 callback,
                 "Куда едем: выбери населённый пункт или город:",
@@ -135,7 +135,7 @@ class NavigationFlow:
             locality = data.get("end_locality")
             if locality:
                 await state.set_state(self.trip_search_state.end_district)
-                districts = repo.list_districts(str(locality))
+                districts = repo.routes.list_districts(str(locality))
                 await self._edit_or_send_clean(
                     callback,
                     f"{locality}: выбери район (конечная):",
@@ -149,7 +149,7 @@ class NavigationFlow:
             district = data.get("end_district", "")
             if locality is not None:
                 await state.set_state(self.trip_search_state.end_admin_area)
-                admin_areas = repo.list_admin_areas(str(locality), str(district))
+                admin_areas = repo.routes.list_admin_areas(str(locality), str(district))
                 await self._edit_or_send_clean(
                     callback,
                     "Выбери административный район (конечная):",
@@ -164,7 +164,7 @@ class NavigationFlow:
             admin_area = data.get("end_admin_area", "")
             if locality is not None:
                 await state.set_state(self.trip_search_state.end_stop)
-                stops = repo.list_stops(str(locality), str(district), str(admin_area))
+                stops = repo.routes.list_stops(str(locality), str(district), str(admin_area))
                 await self._edit_or_send_clean(
                     callback,
                     "Выбери остановку высадки:",
@@ -175,7 +175,7 @@ class NavigationFlow:
                 )
         elif target == "create_start_locality":
             await state.set_state(self.trip_create_state.start_locality)
-            locs = repo.list_localities()
+            locs = repo.routes.list_localities()
             await self._edit_or_send_clean(
                 callback,
                 "Старт поездки: выбери населённый пункт или город:",
@@ -185,7 +185,7 @@ class NavigationFlow:
             locality = data.get("start_locality")
             if locality:
                 await state.set_state(self.trip_create_state.start_district)
-                districts = repo.list_districts(str(locality))
+                districts = repo.routes.list_districts(str(locality))
                 await self._edit_or_send_clean(
                     callback,
                     f"{locality}: выбери район:",
@@ -199,7 +199,7 @@ class NavigationFlow:
             district = data.get("start_district", "")
             if locality is not None:
                 await state.set_state(self.trip_create_state.start_admin_area)
-                admin_areas = repo.list_admin_areas(str(locality), str(district))
+                admin_areas = repo.routes.list_admin_areas(str(locality), str(district))
                 await self._edit_or_send_clean(
                     callback,
                     "Выбери административный район:",
@@ -214,7 +214,7 @@ class NavigationFlow:
             admin_area = data.get("start_admin_area", "")
             if locality is not None:
                 await state.set_state(self.trip_create_state.start_stop)
-                stops = repo.list_stops(str(locality), str(district), str(admin_area))
+                stops = repo.routes.list_stops(str(locality), str(district), str(admin_area))
                 await self._edit_or_send_clean(
                     callback,
                     "Выбери остановку посадки:",
@@ -225,7 +225,7 @@ class NavigationFlow:
                 )
         elif target == "create_end_locality":
             await state.set_state(self.trip_create_state.end_locality)
-            locs = repo.list_localities()
+            locs = repo.routes.list_localities()
             await self._edit_or_send_clean(
                 callback,
                 "Финиш поездки: выбери населённый пункт или город:",
@@ -235,7 +235,7 @@ class NavigationFlow:
             locality = data.get("end_locality")
             if locality:
                 await state.set_state(self.trip_create_state.end_district)
-                districts = repo.list_districts(str(locality))
+                districts = repo.routes.list_districts(str(locality))
                 await self._edit_or_send_clean(
                     callback,
                     f"{locality}: выбери район (конечная):",
@@ -249,7 +249,7 @@ class NavigationFlow:
             district = data.get("end_district", "")
             if locality is not None:
                 await state.set_state(self.trip_create_state.end_admin_area)
-                admin_areas = repo.list_admin_areas(str(locality), str(district))
+                admin_areas = repo.routes.list_admin_areas(str(locality), str(district))
                 await self._edit_or_send_clean(
                     callback,
                     "Выбери административный район (конечная):",
@@ -264,7 +264,7 @@ class NavigationFlow:
             admin_area = data.get("end_admin_area", "")
             if locality is not None:
                 await state.set_state(self.trip_create_state.end_stop)
-                stops = repo.list_stops(str(locality), str(district), str(admin_area))
+                stops = repo.routes.list_stops(str(locality), str(district), str(admin_area))
                 await self._edit_or_send_clean(
                     callback,
                     "Выбери остановку высадки:",
@@ -324,7 +324,7 @@ class NavigationFlow:
             return
 
         if current.endswith("start_district"):
-            locs = repo.list_localities()
+            locs = repo.routes.list_localities()
             if is_search:
                 await state.set_state(self.trip_search_state.start_locality)
                 await self._send_flow_step(
@@ -344,7 +344,7 @@ class NavigationFlow:
         if current.endswith("start_admin_area"):
             locality = data.get("start_locality")
             if locality:
-                districts = repo.list_districts(str(locality))
+                districts = repo.routes.list_districts(str(locality))
                 if is_search:
                     await state.set_state(self.trip_search_state.start_district)
                     await self._send_flow_step(
@@ -361,7 +361,7 @@ class NavigationFlow:
             locality = data.get("start_locality")
             district = data.get("start_district", "")
             if locality is not None:
-                admin_areas = repo.list_admin_areas(str(locality), str(district))
+                admin_areas = repo.routes.list_admin_areas(str(locality), str(district))
                 if is_search:
                     await state.set_state(self.trip_search_state.start_admin_area)
                     await self._send_flow_step(
@@ -383,7 +383,7 @@ class NavigationFlow:
             district = data.get("start_district", "")
             admin_area = data.get("start_admin_area", "")
             if locality is not None:
-                stops = repo.list_stops(str(locality), str(district), str(admin_area))
+                stops = repo.routes.list_stops(str(locality), str(district), str(admin_area))
                 if is_search:
                     await state.set_state(self.trip_search_state.start_stop)
                     await self._send_flow_step(message, "Выбери остановку посадки:", self._stops_keyboard(stops, "Sfp"))
@@ -393,7 +393,7 @@ class NavigationFlow:
             return
 
         if current.endswith("end_district"):
-            locs = repo.list_localities()
+            locs = repo.routes.list_localities()
             if is_search:
                 await state.set_state(self.trip_search_state.end_locality)
                 await self._send_flow_step(
@@ -413,7 +413,7 @@ class NavigationFlow:
         if current.endswith("end_admin_area"):
             locality = data.get("end_locality")
             if locality:
-                districts = repo.list_districts(str(locality))
+                districts = repo.routes.list_districts(str(locality))
                 if is_search:
                     await state.set_state(self.trip_search_state.end_district)
                     await self._send_flow_step(
@@ -434,7 +434,7 @@ class NavigationFlow:
             locality = data.get("end_locality")
             district = data.get("end_district", "")
             if locality is not None:
-                admin_areas = repo.list_admin_areas(str(locality), str(district))
+                admin_areas = repo.routes.list_admin_areas(str(locality), str(district))
                 if is_search:
                     await state.set_state(self.trip_search_state.end_admin_area)
                     await self._send_flow_step(
@@ -456,7 +456,7 @@ class NavigationFlow:
             district = data.get("end_district", "")
             admin_area = data.get("end_admin_area", "")
             if locality is not None:
-                stops = repo.list_stops(str(locality), str(district), str(admin_area))
+                stops = repo.routes.list_stops(str(locality), str(district), str(admin_area))
                 if is_search:
                     await state.set_state(self.trip_search_state.end_stop)
                     await self._send_flow_step(message, "Выбери остановку высадки:", self._stops_keyboard(stops, "Stp"))

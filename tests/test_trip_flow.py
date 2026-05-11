@@ -51,6 +51,7 @@ class _FakeRepo:
     def __init__(self) -> None:
         self._localities = ["A", "B"]
         self._districts = ["D1"]
+        self.routes = self
 
     def list_localities(self):
         return list(self._localities)

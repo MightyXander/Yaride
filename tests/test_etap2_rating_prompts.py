@@ -105,18 +105,18 @@ class RatingPromptsSqlTests(TestCase):
             status="cancelled",
         )
         now = datetime(2026, 6, 1, 20, 0, 0)
-        self.assertEqual(len(self.repo.list_pending_rating_prompts(now)), 0)
+        self.assertEqual(len(self.repo.ratings.list_pending_rating_prompts(now)), 0)
 
     def test_trip_within_three_hours_after_start_yields_no_prompts(self) -> None:
         """Отправление 17:00, сейчас 18:00 — до «отправление+3ч» ещё не прошло."""
         self._insert_trip(trip_date="2026-06-01", departure_time="17:00")
         now = datetime(2026, 6, 1, 18, 0, 0)
-        self.assertEqual(len(self.repo.list_pending_rating_prompts(now)), 0)
+        self.assertEqual(len(self.repo.ratings.list_pending_rating_prompts(now)), 0)
 
     def test_eligible_trip_two_prompts_passenger_and_driver(self) -> None:
         self._insert_trip(trip_date="2026-06-01", departure_time="08:00")
         now = datetime(2026, 6, 1, 20, 0, 0)
-        prompts = self.repo.list_pending_rating_prompts(now)
+        prompts = self.repo.ratings.list_pending_rating_prompts(now)
         self.assertEqual(len(prompts), 2)
         kinds = {(p.rater_user_id, p.rated_user_id) for p in prompts}
         self.assertIn((self.pass_iid, self.driver_iid), kinds)
@@ -133,7 +133,7 @@ class RatingPromptsSqlTests(TestCase):
                 (tid, self.pass_iid, self.driver_iid),
             )
         now = datetime(2026, 6, 1, 20, 0, 0)
-        prompts = self.repo.list_pending_rating_prompts(now)
+        prompts = self.repo.ratings.list_pending_rating_prompts(now)
         self.assertEqual(len(prompts), 1)
         self.assertEqual(prompts[0].rater_user_id, self.driver_iid)
         self.assertEqual(prompts[0].rated_user_id, self.pass_iid)
@@ -156,7 +156,7 @@ class RatingPromptsSqlTests(TestCase):
                 (tid, self.driver_iid, self.pass_iid),
             )
         now = datetime(2026, 6, 1, 20, 0, 0)
-        self.assertEqual(len(self.repo.list_pending_rating_prompts(now)), 0)
+        self.assertEqual(len(self.repo.ratings.list_pending_rating_prompts(now)), 0)
 
     def test_second_passenger_one_prompt_when_first_finished_mutual_ratings(self) -> None:
         """Два пассажира: первый и водитель полностью обменялись оценками; у второго только p→d — один prompt (d→p)."""
@@ -197,7 +197,7 @@ class RatingPromptsSqlTests(TestCase):
                 (tid, p2_iid, self.driver_iid),
             )
         now = datetime(2026, 6, 1, 20, 0, 0)
-        prompts = self.repo.list_pending_rating_prompts(now)
+        prompts = self.repo.ratings.list_pending_rating_prompts(now)
         self.assertEqual(len(prompts), 1)
         self.assertEqual(prompts[0].rater_user_id, self.driver_iid)
         self.assertEqual(prompts[0].rated_user_id, p2_iid)
@@ -257,5 +257,5 @@ class RatingPromptsSqlTests(TestCase):
             raw.execute_calls = 0
 
             now = datetime(2026, 6, 1, 20, 0, 0)
-            repo.list_pending_rating_prompts(now)
+            repo.ratings.list_pending_rating_prompts(now)
             self.assertLessEqual(raw.execute_calls, 3)

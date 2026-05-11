@@ -177,7 +177,7 @@ def _run_benchmark(db_path: str, *, with_indexes: bool) -> dict[str, float]:
     find_open_ms = (time.perf_counter() - t0) * 1000
 
     t1 = time.perf_counter()
-    repo.list_pending_rating_prompts(now)
+    repo.ratings.list_pending_rating_prompts(now)
     prompts_ms = (time.perf_counter() - t1) * 1000
 
     db.close()

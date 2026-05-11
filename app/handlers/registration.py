@@ -18,11 +18,11 @@ router = Router()
 
 @router.message(Command("start"))
 async def start(message: Message, state: FSMContext, repo: Repo) -> None:
-    from app.bot import cleanup_chat, drop_empty_chat_bridge, role_keyboard, track_bot_message
+    from app.bot_support import cleanup_chat, drop_empty_chat_bridge, role_keyboard, track_bot_message
 
     bridge_id = await cleanup_chat(message)
     await state.clear()
-    user = repo.get_user(message.from_user.id)
+    user = repo.users.get_user(message.from_user.id)
     if user:
         name = str(user["name"] or "").strip() or (message.from_user.first_name or "друг")
         await state.update_data(name=name)
@@ -40,7 +40,7 @@ async def start(message: Message, state: FSMContext, repo: Repo) -> None:
 
 @router.message(Registration.waiting_name)
 async def reg_name(message: Message, state: FSMContext) -> None:
-    from app.bot import role_keyboard, send_clean_message
+    from app.bot_support import role_keyboard, send_clean_message
 
     name = (message.text or "").strip()
     if len(name) < 2:
@@ -53,7 +53,7 @@ async def reg_name(message: Message, state: FSMContext) -> None:
 
 @router.callback_query(F.data.startswith("set_role:"))
 async def reg_role(callback: CallbackQuery, state: FSMContext, repo: Repo) -> None:
-    from app.bot import edit_or_send_clean, flow_keyboard, main_keyboard
+    from app.bot_support import edit_or_send_clean, flow_keyboard, main_keyboard
 
     role = callback.data.split(":", 1)[1]
     data = await state.get_data()
@@ -64,7 +64,7 @@ async def reg_role(callback: CallbackQuery, state: FSMContext, repo: Repo) -> No
         await callback.answer()
         return
     if role == "passenger":
-        repo.upsert_user(callback.from_user.id, str(name), callback.from_user.username, "passenger")
+        repo.users.upsert_user(callback.from_user.id, str(name), callback.from_user.username, "passenger")
         await state.clear()
         await edit_or_send_clean(
             callback,
@@ -89,7 +89,7 @@ async def reg_role(callback: CallbackQuery, state: FSMContext, repo: Repo) -> No
 
 @router.message(Registration.waiting_dl_series)
 async def reg_dl_series(message: Message, state: FSMContext) -> None:
-    from app.bot import flow_keyboard, send_clean_message
+    from app.bot_support import flow_keyboard, send_clean_message
 
     ok, normalized, err = normalize_dl_series_number(message.text or "")
     if not ok:
@@ -106,7 +106,7 @@ async def reg_dl_series(message: Message, state: FSMContext) -> None:
 
 @router.message(Registration.waiting_dl_expiry)
 async def reg_dl_expiry(message: Message, state: FSMContext, repo: Repo) -> None:
-    from app.bot import main_keyboard, send_clean_message
+    from app.bot_support import main_keyboard, send_clean_message
 
     ok, expiry_date, err = parse_expiry_date(message.text or "")
     if not ok or not expiry_date:
@@ -128,7 +128,7 @@ async def reg_dl_expiry(message: Message, state: FSMContext, repo: Repo) -> None
         await state.set_state(Registration.waiting_dl_series)
         return
     try:
-        repo.upsert_user(
+        repo.users.upsert_user(
             message.from_user.id,
             str(name),
             message.from_user.username,

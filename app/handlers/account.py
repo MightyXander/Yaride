@@ -18,9 +18,9 @@ router = Router()
 
 @router.message(F.text == "Аккаунт")
 async def account_open(message: Message, repo: Repo) -> None:
-    from app.bot import account_kb_menu, send_clean_message
+    from app.bot_support import account_kb_menu, send_clean_message
 
-    user = repo.get_user(message.from_user.id)
+    user = repo.users.get_user(message.from_user.id)
     if not user:
         await send_clean_message(message, "Сначала зарегистрируйся через /start.")
         return
@@ -33,7 +33,7 @@ async def account_open(message: Message, repo: Repo) -> None:
 
 @router.callback_query(F.data.startswith("account:"))
 async def account_panel(callback: CallbackQuery, state: FSMContext, repo: Repo) -> None:
-    from app.bot import (
+    from app.bot_support import (
         account_kb_back,
         account_kb_menu,
         edit_or_send_clean,
@@ -43,7 +43,7 @@ async def account_panel(callback: CallbackQuery, state: FSMContext, repo: Repo) 
     )
 
     action = callback.data.split(":", 1)[1]
-    user = repo.get_user(callback.from_user.id)
+    user = repo.users.get_user(callback.from_user.id)
     if not user:
         await callback.answer("Сначала /start.", show_alert=True)
         return
@@ -78,7 +78,7 @@ async def account_panel(callback: CallbackQuery, state: FSMContext, repo: Repo) 
         return
 
     if action == "reviews":
-        rows = repo.list_ratings_received(callback.from_user.id)
+        rows = repo.ratings.list_ratings_received(callback.from_user.id)
         if not rows:
             txt = "Пока никто не оставил оценок после поездок."
         else:
@@ -129,7 +129,7 @@ async def account_panel(callback: CallbackQuery, state: FSMContext, repo: Repo) 
 
 @router.message(AccountUpgrade.waiting_dl_series)
 async def account_upgrade_dl_series(message: Message, state: FSMContext) -> None:
-    from app.bot import flow_keyboard, send_clean_message
+    from app.bot_support import flow_keyboard, send_clean_message
 
     ok, normalized, err = normalize_dl_series_number(message.text or "")
     if not ok:
@@ -146,7 +146,7 @@ async def account_upgrade_dl_series(message: Message, state: FSMContext) -> None
 
 @router.message(AccountUpgrade.waiting_dl_expiry)
 async def account_upgrade_dl_expiry(message: Message, state: FSMContext, repo: Repo) -> None:
-    from app.bot import main_keyboard, send_clean_message
+    from app.bot_support import main_keyboard, send_clean_message
 
     ok, expiry_date, err = parse_expiry_date(message.text or "")
     if not ok or not expiry_date:
@@ -156,7 +156,7 @@ async def account_upgrade_dl_expiry(message: Message, state: FSMContext, repo: R
     if not ok_exp:
         await send_clean_message(message, msg_exp or "ВУ недействительно.")
         return
-    user = repo.get_user(message.from_user.id)
+    user = repo.users.get_user(message.from_user.id)
     if not user or user["role"] != "passenger":
         await send_clean_message(message, "Сессия устарела или роль уже изменена.")
         await state.clear()
@@ -168,7 +168,7 @@ async def account_upgrade_dl_expiry(message: Message, state: FSMContext, repo: R
         await state.set_state(AccountUpgrade.waiting_dl_series)
         return
     try:
-        repo.upsert_user(
+        repo.users.upsert_user(
             message.from_user.id,
             str(user["name"]),
             message.from_user.username,
@@ -190,7 +190,7 @@ async def account_upgrade_dl_expiry(message: Message, state: FSMContext, repo: R
 
 @router.message(F.text == "⬅ Назад", StateFilter(AccountUpgrade.waiting_dl_expiry))
 async def account_upgrade_back_from_expiry(message: Message, state: FSMContext) -> None:
-    from app.bot import flow_keyboard, send_clean_message
+    from app.bot_support import flow_keyboard, send_clean_message
 
     await state.set_state(AccountUpgrade.waiting_dl_series)
     await send_clean_message(
@@ -202,10 +202,10 @@ async def account_upgrade_back_from_expiry(message: Message, state: FSMContext) 
 
 @router.message(F.text == "⬅ Назад", StateFilter(AccountUpgrade.waiting_dl_series))
 async def account_upgrade_back_from_series(message: Message, state: FSMContext, repo: Repo) -> None:
-    from app.bot import account_kb_menu, send_clean_message
+    from app.bot_support import account_kb_menu, send_clean_message
 
     await state.clear()
-    user = repo.get_user(message.from_user.id)
+    user = repo.users.get_user(message.from_user.id)
     if not user:
         await send_clean_message(message, "Сначала зарегистрируйся через /start.")
         return

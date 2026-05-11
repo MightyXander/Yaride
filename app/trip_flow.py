@@ -9,7 +9,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message, ReplyKey
 # Несколько подрайонов в районе, но мало остановок суммарно — один список кнопок вместо шага «подрайон».
 DISTRICT_MERGED_STOPS_MAX = 15
 
-# Совпадает с GEO_SUGGEST_MESSAGE_KEY в bot.py — сообщение с топом остановок по гео.
+# Совпадает с GEO_SUGGEST_MESSAGE_KEY в app.bot_support — сообщение с топом остановок по гео.
 _GEO_SUGGEST_MESSAGE_KEY = "geo_suggest_message_id"
 
 # Сообщения пользователя с геолокацией (удаляем после выбора остановки или перехода к району по гео-городу).
@@ -86,7 +86,7 @@ class TripFlowOrchestrator:
     async def begin(self, message: Message, state: FSMContext, repo: Any, mode: str) -> None:
         cfg = self._cfg(mode)
         await state.clear()
-        localities = repo.list_localities()
+        localities = repo.routes.list_localities()
         await state.set_state(cfg["state_group"].start_locality)
         await self._send_flow_step(
             message,
@@ -106,7 +106,7 @@ class TripFlowOrchestrator:
     ) -> None:
         """Переход к выбору района после определения населённого пункта отправления по геолокации."""
         cfg = self._cfg(mode)
-        localities = repo.list_localities()
+        localities = repo.routes.list_localities()
         if locality not in localities:
             await message.answer(
                 "Этого населённого пункта нет в списке маршрутов. Выбери из списка кнопкой.",
@@ -114,7 +114,7 @@ class TripFlowOrchestrator:
             )
             return
         await state.update_data(start_locality=locality)
-        districts = repo.list_districts(locality)
+        districts = repo.routes.list_districts(locality)
         await state.set_state(cfg["state_group"].start_district)
         markup = self._add_back_button(
             self._districts_keyboard(cfg["start_district_prefix"], districts),
@@ -163,7 +163,7 @@ class TripFlowOrchestrator:
                 await callback.answer(stale_flow_hint(mode), show_alert=True)
                 return
 
-        localities = repo.list_localities()
+        localities = repo.routes.list_localities()
         try:
             locality = localities[idx]
         except IndexError:
@@ -177,7 +177,7 @@ class TripFlowOrchestrator:
         title_suffix = "" if is_start else " (конечная)"
 
         await state.update_data(**{key: locality})
-        districts = repo.list_districts(locality)
+        districts = repo.routes.list_districts(locality)
         await state.set_state(next_state)
         await self._edit_or_send_clean(
             callback,
@@ -221,19 +221,19 @@ class TripFlowOrchestrator:
         back_admin = cfg["start_admin_back"] if is_start else cfg["end_admin_back"]
 
         locality = data[locality_key]
-        districts = repo.list_districts(locality)
+        districts = repo.routes.list_districts(locality)
         try:
             district = districts[idx]
         except IndexError:
             await callback.answer(stale_flow_hint(mode), show_alert=True)
             return
         await state.update_data(**{district_key: district})
-        admin_areas = repo.list_admin_areas(locality, district)
+        admin_areas = repo.routes.list_admin_areas(locality, district)
 
         if len(admin_areas) > 1:
             merged_stops: list[Any] = []
             for aa in admin_areas:
-                merged_stops.extend(repo.list_stops(locality, district, aa))
+                merged_stops.extend(repo.routes.list_stops(locality, district, aa))
             if 1 <= len(merged_stops) <= DISTRICT_MERGED_STOPS_MAX:
                 merged_stops.sort(key=lambda x: str(x["title"]))
                 await state.update_data(merged_stop_pick=True)
@@ -264,7 +264,7 @@ class TripFlowOrchestrator:
 
         admin_area = admin_areas[0]
         await state.update_data(**{admin_area_key: admin_area})
-        stops = repo.list_stops(locality, district, admin_area)
+        stops = repo.routes.list_stops(locality, district, admin_area)
 
         if len(stops) > 1:
             state_value = cfg["state_group"].start_stop if is_start else cfg["state_group"].end_stop
@@ -282,7 +282,7 @@ class TripFlowOrchestrator:
         stop = stops[0]
         await state.update_data(**{point_key: stop["id"]})
         if is_start:
-            localities = repo.list_localities()
+            localities = repo.routes.list_localities()
             await state.set_state(cfg["state_group"].end_locality)
             await self._edit_or_send_clean(
                 callback,
@@ -326,14 +326,14 @@ class TripFlowOrchestrator:
             return
         locality = data[lk]
         district = data[dk]
-        admin_areas = repo.list_admin_areas(locality, district)
+        admin_areas = repo.routes.list_admin_areas(locality, district)
         try:
             admin_area = admin_areas[idx]
         except IndexError:
             await callback.answer(stale_flow_hint(mode), show_alert=True)
             return
         await state.update_data(**{("start_admin_area" if is_start else "end_admin_area"): admin_area})
-        stops = repo.list_stops(locality, district, admin_area)
+        stops = repo.routes.list_stops(locality, district, admin_area)
 
         state_value = cfg["state_group"].start_stop if is_start else cfg["state_group"].end_stop
         await state.set_state(state_value)
@@ -370,7 +370,7 @@ class TripFlowOrchestrator:
             await callback.answer(stale_flow_hint(mode), show_alert=True)
             return
 
-        pt = repo.get_point(start_point)
+        pt = repo.routes.get_point(start_point)
         loc = str(data["start_locality"])
         dist = str(data["start_district"])
         merged = bool(data.get("merged_stop_pick"))
@@ -385,7 +385,7 @@ class TripFlowOrchestrator:
                 extras["start_admin_area"] = str(pt["admin_area"] or "")
             extras["merged_stop_pick"] = False
         await state.update_data(**extras)
-        localities = repo.list_localities()
+        localities = repo.routes.list_localities()
         await state.set_state(cfg["state_group"].end_locality)
         await self._edit_or_send_clean(
             callback,
@@ -421,7 +421,7 @@ class TripFlowOrchestrator:
             await callback.answer(stale_flow_hint(mode), show_alert=True)
             return
 
-        pt = repo.get_point(end_point)
+        pt = repo.routes.get_point(end_point)
         loc = str(data["end_locality"])
         dist = str(data["end_district"])
         merged = bool(data.get("merged_stop_pick"))
@@ -458,7 +458,7 @@ class TripFlowOrchestrator:
     ) -> None:
         """Выбор остановки посадки из подсказок после геолокации на первом шаге."""
         cfg = self._cfg(mode)
-        pt = repo.get_point(start_point)
+        pt = repo.routes.get_point(start_point)
         if pt is None or str(pt["kind"]) != "stop":
             await callback.answer("Остановка не найдена.", show_alert=True)
             return
@@ -472,7 +472,7 @@ class TripFlowOrchestrator:
             merged_stop_pick=False,
         )
         await state.update_data(**{_GEO_SUGGEST_MESSAGE_KEY: None})
-        localities = repo.list_localities()
+        localities = repo.routes.list_localities()
         await state.set_state(cfg["state_group"].end_locality)
         await self._edit_or_send_clean(
             callback,

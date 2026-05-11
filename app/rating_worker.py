@@ -17,12 +17,12 @@ _kb = KeyboardFactory()
 
 
 async def process_pending_rating_prompts(bot: Bot, repo: Repo) -> None:
-    prompts = repo.list_pending_rating_prompts()
+    prompts = repo.ratings.list_pending_rating_prompts()
     for p in prompts:
         markup = _kb.rating_stars_keyboard(p.trip_id, p.rated_tg_user_id)
         try:
             await bot.send_message(p.rater_tg_user_id, p.prompt_text, reply_markup=markup)
-            repo.mark_rating_prompt_sent(p.trip_id, p.rater_user_id, p.rated_user_id)
+            repo.ratings.mark_rating_prompt_sent(p.trip_id, p.rater_user_id, p.rated_user_id)
         except Exception as err:
             logger.warning(
                 "Не удалось отправить напоминание об оценке trip=%s rater=%s: %s",
