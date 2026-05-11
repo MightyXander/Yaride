@@ -38,5 +38,5 @@ Tests are pure unit tests (no network, no database) using `unittest.IsolatedAsyn
 - **Linting:** project uses `ruff` (>=0.15.12).
   - `py -3 -m ruff check .` and `py -3 -m ruff format --check .` must pass before committing.
   - Configuration lives in `pyproject.toml`.
-- **Schema version:** SQLite has a `schema_version(id, version)` table. `app.db.SCHEMA_VERSION` is the current code version. Linear migrations by version are introduced in Этап 1 (see `docs/superpowers/specs/2026-05-11-etap-1-data-resilience.md`).
+- **Schema version:** SQLite has a `schema_version(id, version)` table. `app.db.SCHEMA_VERSION` is the current code version. Linear migrations by version are introduced in Этап 1 (see `docs/superpowers/specs/2026-05-11-etap-1-data-resilience.md`). Этап 2 adds performance indexes (`app/db.py`, migration to v3); see README «Индексы и запросы».
 - SQLite DB file (`yaride.db`) is created at first run and is gitignored implicitly (not tracked). Delete it to reset state.

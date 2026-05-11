@@ -8,8 +8,8 @@ from contextlib import contextmanager
 from app.geo_stops import COORDINATE_OVERRIDES, lat_lng_for_stop
 from app.seeds import ROUTE_HIERARCHY
 
-# Текущая версия схемы кода. После этапа 0 было 1; этап 1 поднимает до 2 (миграция WAL/контур — без DDL).
-CURRENT_SCHEMA_VERSION = 2
+# Текущая версия схемы кода. v2 — этап 1 (WAL); v3 — этап 2 (индексы).
+CURRENT_SCHEMA_VERSION = 3
 SCHEMA_VERSION = CURRENT_SCHEMA_VERSION
 
 
@@ -110,11 +110,41 @@ class Database:
         if from_v == 1 and to_v == 2:
             self._migrate_v1_to_v2(conn)
             return
+        if from_v == 2 and to_v == 3:
+            self._migrate_v2_to_v3(conn)
+            return
         raise RuntimeError(f"No migration defined from v{from_v} to v{to_v}")
 
     def _migrate_v1_to_v2(self, conn: sqlite3.Connection) -> None:
         """Один раз при переходе с этапа 0: применить правки иерархии route_points (раньше дёргалось на каждой транзакции)."""
         self._migrate_route_hierarchy_simplify(conn)
+
+    def _migrate_v2_to_v3(self, conn: sqlite3.Connection) -> None:
+        """Индексы под типовые запросы поездок, броней и рейтингов (этап 2)."""
+        self._ensure_performance_indexes(conn)
+
+    def _ensure_performance_indexes(self, conn: sqlite3.Connection) -> None:
+        conn.executescript(
+            """
+            CREATE INDEX IF NOT EXISTS idx_trips_status_date_route
+                ON trips(status, trip_date, start_point_id, end_point_id);
+
+            CREATE INDEX IF NOT EXISTS idx_bookings_passenger_status
+                ON bookings(passenger_id, status);
+
+            CREATE INDEX IF NOT EXISTS idx_bookings_trip_status
+                ON bookings(trip_id, status);
+
+            CREATE INDEX IF NOT EXISTS idx_trip_ratings_rated
+                ON trip_ratings(rated_user_id);
+
+            CREATE INDEX IF NOT EXISTS idx_trip_ratings_trip_rater_rated
+                ON trip_ratings(trip_id, rater_user_id, rated_user_id);
+
+            CREATE INDEX IF NOT EXISTS idx_rating_prompts_trip_rater_rated
+                ON rating_prompts_sent(trip_id, rater_user_id, rated_user_id);
+            """
+        )
 
     def _bootstrap_full_schema(self, conn: sqlite3.Connection) -> None:
         conn.executescript(
@@ -185,6 +215,7 @@ class Database:
         self._seed_route_points(conn)
         self._migrate_route_hierarchy_simplify(conn)
         self._fill_route_point_coordinates(conn)
+        self._ensure_performance_indexes(conn)
 
     def _migrate_schema(self, conn: sqlite3.Connection) -> None:
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(trips)").fetchall()}

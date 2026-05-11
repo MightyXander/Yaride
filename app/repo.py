@@ -971,102 +971,95 @@ class RatingRepository(_BaseRepository):
             )
 
     def list_pending_rating_prompts(self, now: datetime | None = None) -> list[PendingRatingPrompt]:
-        """Поездки с активной бронью: время отправления + 3 ч уже прошло, оценки ещё нет, напоминание не отправляли."""
+        """Поездки с активной бронью: отправление + 3 ч в прошлом; нет оценки и не отправляли напоминание."""
         now = now or datetime.now()
+        cutoff = now - timedelta(hours=3)
+        cutoff_s = cutoff.strftime("%Y-%m-%d %H:%M:%S")
+
+        sql = """
+            SELECT
+                t.id AS trip_id,
+                b.passenger_id AS rater_user_id,
+                t.driver_id AS rated_user_id,
+                p.tg_user_id AS rater_tg_user_id,
+                dr.tg_user_id AS rated_tg_user_id,
+                dr.name AS rated_display_name,
+                'p2d' AS prompt_kind
+            FROM trips t
+            JOIN bookings b ON b.trip_id = t.id AND b.status = 'active'
+            JOIN users p ON p.id = b.passenger_id
+            JOIN users dr ON dr.id = t.driver_id
+            LEFT JOIN trip_ratings tr
+                ON tr.trip_id = t.id
+                AND tr.rater_user_id = b.passenger_id
+                AND tr.rated_user_id = t.driver_id
+            LEFT JOIN rating_prompts_sent rs
+                ON rs.trip_id = t.id
+                AND rs.rater_user_id = b.passenger_id
+                AND rs.rated_user_id = t.driver_id
+            WHERE t.status != 'cancelled'
+              AND trim(COALESCE(t.trip_date, '')) != ''
+              AND trim(COALESCE(t.departure_time, '')) != ''
+              AND datetime(trim(t.trip_date) || ' ' || trim(t.departure_time)) <= datetime(?)
+              AND tr.id IS NULL
+              AND rs.trip_id IS NULL
+
+            UNION ALL
+
+            SELECT
+                t.id AS trip_id,
+                t.driver_id AS rater_user_id,
+                b.passenger_id AS rated_user_id,
+                dr.tg_user_id AS rater_tg_user_id,
+                p.tg_user_id AS rated_tg_user_id,
+                p.name AS rated_display_name,
+                'd2p' AS prompt_kind
+            FROM trips t
+            JOIN bookings b ON b.trip_id = t.id AND b.status = 'active'
+            JOIN users p ON p.id = b.passenger_id
+            JOIN users dr ON dr.id = t.driver_id
+            LEFT JOIN trip_ratings tr
+                ON tr.trip_id = t.id
+                AND tr.rater_user_id = t.driver_id
+                AND tr.rated_user_id = b.passenger_id
+            LEFT JOIN rating_prompts_sent rs
+                ON rs.trip_id = t.id
+                AND rs.rater_user_id = t.driver_id
+                AND rs.rated_user_id = b.passenger_id
+            WHERE t.status != 'cancelled'
+              AND trim(COALESCE(t.trip_date, '')) != ''
+              AND trim(COALESCE(t.departure_time, '')) != ''
+              AND datetime(trim(t.trip_date) || ' ' || trim(t.departure_time)) <= datetime(?)
+              AND tr.id IS NULL
+              AND rs.trip_id IS NULL
+        """
+
         out: list[PendingRatingPrompt] = []
         with self.db.transaction() as conn:
-            trips = conn.execute(
-                """
-                SELECT t.id, t.trip_date, t.departure_time, t.driver_id, t.status,
-                       dr.tg_user_id AS driver_tg, dr.name AS driver_name
-                FROM trips t
-                JOIN users dr ON dr.id = t.driver_id
-                WHERE t.status != 'cancelled'
-                """,
-            ).fetchall()
+            rows = conn.execute(sql, (cutoff_s, cutoff_s)).fetchall()
 
-            for t in trips:
-                trip_id = int(t["id"])
-                trip_dt = self._trip_start_dt(t["trip_date"], t["departure_time"])
-                if trip_dt is None:
-                    continue
-                if now < trip_dt + timedelta(hours=3):
-                    continue
+        for row in rows:
+            trip_id = int(row["trip_id"])
+            rated_name = str(row["rated_display_name"] or "")
+            kind = str(row["prompt_kind"])
+            if kind == "p2d":
+                prompt_text = (
+                    f"Поездка #{trip_id} состоялась. Оцените водителя «{rated_name}» (от 1 до 5):"
+                )
+            else:
+                prompt_text = f"Поездка #{trip_id}. Оцените пассажира «{rated_name}» (от 1 до 5):"
 
-                driver_id = int(t["driver_id"])
-                driver_tg = int(t["driver_tg"])
-                driver_name = str(t["driver_name"] or "")
-
-                bookings = conn.execute(
-                    """
-                    SELECT b.passenger_id, p.tg_user_id AS passenger_tg, p.name AS passenger_name
-                    FROM bookings b
-                    JOIN users p ON p.id = b.passenger_id
-                    WHERE b.trip_id = ? AND b.status = 'active'
-                    """,
-                    (trip_id,),
-                ).fetchall()
-
-                for b in bookings:
-                    passenger_id = int(b["passenger_id"])
-                    passenger_tg = int(b["passenger_tg"])
-                    passenger_name = str(b["passenger_name"] or "")
-
-                    has_p2d = conn.execute(
-                        """
-                        SELECT 1 FROM trip_ratings
-                        WHERE trip_id = ? AND rater_user_id = ? AND rated_user_id = ?
-                        """,
-                        (trip_id, passenger_id, driver_id),
-                    ).fetchone()
-                    sent_p2d = conn.execute(
-                        """
-                        SELECT 1 FROM rating_prompts_sent
-                        WHERE trip_id = ? AND rater_user_id = ? AND rated_user_id = ?
-                        """,
-                        (trip_id, passenger_id, driver_id),
-                    ).fetchone()
-                    if not has_p2d and not sent_p2d:
-                        out.append(
-                            PendingRatingPrompt(
-                                trip_id=trip_id,
-                                rater_user_id=passenger_id,
-                                rated_user_id=driver_id,
-                                rater_tg_user_id=passenger_tg,
-                                rated_tg_user_id=driver_tg,
-                                rated_name=driver_name,
-                                prompt_text=(
-                                    f"Поездка #{trip_id} состоялась. Оцените водителя «{driver_name}» (от 1 до 5):"
-                                ),
-                            )
-                        )
-
-                    has_d2p = conn.execute(
-                        """
-                        SELECT 1 FROM trip_ratings
-                        WHERE trip_id = ? AND rater_user_id = ? AND rated_user_id = ?
-                        """,
-                        (trip_id, driver_id, passenger_id),
-                    ).fetchone()
-                    sent_d2p = conn.execute(
-                        """
-                        SELECT 1 FROM rating_prompts_sent
-                        WHERE trip_id = ? AND rater_user_id = ? AND rated_user_id = ?
-                        """,
-                        (trip_id, driver_id, passenger_id),
-                    ).fetchone()
-                    if not has_d2p and not sent_d2p:
-                        out.append(
-                            PendingRatingPrompt(
-                                trip_id=trip_id,
-                                rater_user_id=driver_id,
-                                rated_user_id=passenger_id,
-                                rater_tg_user_id=driver_tg,
-                                rated_tg_user_id=passenger_tg,
-                                rated_name=passenger_name,
-                                prompt_text=(f"Поездка #{trip_id}. Оцените пассажира «{passenger_name}» (от 1 до 5):"),
-                            )
-                        )
+            out.append(
+                PendingRatingPrompt(
+                    trip_id=trip_id,
+                    rater_user_id=int(row["rater_user_id"]),
+                    rated_user_id=int(row["rated_user_id"]),
+                    rater_tg_user_id=int(row["rater_tg_user_id"]),
+                    rated_tg_user_id=int(row["rated_tg_user_id"]),
+                    rated_name=rated_name,
+                    prompt_text=prompt_text,
+                )
+            )
 
         return out
 

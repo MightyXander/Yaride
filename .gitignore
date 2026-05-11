@@ -1,5 +1,7 @@
 __pycache__/
 *.py[cod]
 yaride.db
+yaride.db-wal
+yaride.db-shm
 .pytest_cache/
 .env
