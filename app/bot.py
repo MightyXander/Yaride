@@ -278,10 +278,7 @@ def _chat_main_kb(tg_user_id: int) -> ReplyKeyboardMarkup:
     return main_keyboard(_REPO_FOR_KB, tg_user_id)
 
 
-CHAT_UI = ChatUiService(
-    main_keyboard_provider=_chat_main_kb,
-    flow_keyboard_provider=lambda: KEYBOARDS.flow_keyboard(),
-)
+CHAT_UI: ChatUiService
 
 
 def flow_keyboard():
@@ -1774,7 +1771,7 @@ async def push_main_menu_after_restart(bot: Bot, repo: Repo) -> None:
 
 
 async def run() -> None:
-    global _REPO_FOR_KB, KEYBOARDS, _SETTINGS
+    global _REPO_FOR_KB, KEYBOARDS, _SETTINGS, CHAT_UI
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s [%(filename)s:%(lineno)d] %(message)s",
@@ -1786,7 +1783,11 @@ async def run() -> None:
     db.init_schema()
     repo = Repo(db)
     _REPO_FOR_KB = repo
-    CHAT_UI.attach_database(db)
+    CHAT_UI = ChatUiService(
+        main_keyboard_provider=_chat_main_kb,
+        flow_keyboard_provider=lambda: KEYBOARDS.flow_keyboard(),
+        database=db,
+    )
 
     bot = Bot(token=settings.bot_token)
     dp = Dispatcher()

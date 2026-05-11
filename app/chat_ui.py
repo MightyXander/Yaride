@@ -18,18 +18,15 @@ class ChatUiService:
         self,
         main_keyboard_provider: Callable[[int], ReplyKeyboardMarkup],
         flow_keyboard_provider: Callable[[], ReplyKeyboardMarkup],
+        *,
+        database: Database | None = None,
         history_limit: int = 12,
     ) -> None:
         self._main_keyboard_provider = main_keyboard_provider
         self._flow_keyboard_provider = flow_keyboard_provider
         self._history_limit = history_limit
         self._chat_history: dict[int, list[int]] = {}
-        self._db: Database | None = None
-
-    def attach_database(self, database: Database) -> None:
-        """После вызова id сообщений бота сохраняются в SQLite и переживают перезапуск процесса."""
         self._db = database
-        self._chat_history.clear()
 
     def _prune_db_chat(self, conn, chat_id: int) -> None:
         rows = conn.execute(
