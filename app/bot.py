@@ -30,6 +30,7 @@ from app.config import Settings
 from app.filters import RatingReviewReplyFilter
 from app.formatting import format_trip_row, format_trip_when
 from app.handlers.account import router as account_router
+from app.handlers.favorites import router as favorites_router
 from app.handlers.registration import router as registration_router
 from app.navigation_flow import NavigationFlow
 from app.rating_worker import process_pending_rating_prompts
@@ -470,26 +471,7 @@ NAVIGATION_FLOW = NavigationFlow(
 
 router.include_router(registration_router)
 router.include_router(account_router)
-
-
-@router.message(F.text == "Избранные маршруты")
-async def favorite_routes_menu(message: Message, repo: Repo) -> None:
-    user = repo.get_user(message.from_user.id)
-    if not user:
-        await send_clean_message(message, "Сначала зарегистрируйся через /start.")
-        return
-    rows = repo.list_favorite_routes(message.from_user.id)
-    if not rows:
-        await send_clean_message(
-            message,
-            "Пока нет избранных маршрутов. После успешной брони можно добавить маршрут кнопкой под сообщением.",
-        )
-        return
-    await send_clean_message(
-        message,
-        "Избранные маршруты — нажми маршрут, затем выбери дату поездки:",
-        reply_markup=favorite_routes_keyboard(rows),
-    )
+router.include_router(favorites_router)
 
 
 @router.message(F.text.in_(["Найти поездки"]))
@@ -700,41 +682,6 @@ async def book_trip(callback, repo: Repo) -> None:
             except Exception as err:
                 logger.warning("Driver notify failed: %s", err)
     await callback.answer("Забронировано")
-
-
-@router.callback_query(F.data.startswith("fav_add:"))
-async def fav_add(callback: CallbackQuery, repo: Repo) -> None:
-    if not repo.get_user(callback.from_user.id):
-        await callback.answer("Сначала /start.", show_alert=True)
-        return
-    tid = int(callback.data.split(":")[1])
-    try:
-        added = repo.add_favorite_from_trip(callback.from_user.id, tid)
-    except ValueError:
-        await callback.answer("Поездка не найдена.", show_alert=True)
-        return
-    await callback.answer("Маршрут добавлен в избранное" if added else "Этот маршрут уже в избранном")
-
-
-@router.callback_query(F.data.startswith("fav_route:"))
-async def favorite_route_pick_date(callback: CallbackQuery, state: FSMContext, repo: Repo) -> None:
-    fid = int(callback.data.split(":")[1])
-    row = repo.get_favorite_route_owned(callback.from_user.id, fid)
-    if not row:
-        await callback.answer("Маршрут не найден.", show_alert=True)
-        return
-    await state.set_state(TripSearch.trip_date)
-    await state.update_data(
-        start_point=int(row["start_point_id"]),
-        end_point=int(row["end_point_id"]),
-        calendar_target="search",
-    )
-    await edit_or_send_clean(
-        callback,
-        f"{row['start_title']} → {row['end_title']}\nВыбери дату поездки:",
-        reply_markup=add_back_button(await trip_calendar().start_calendar(), "menu"),
-    )
-    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("rate:"))
