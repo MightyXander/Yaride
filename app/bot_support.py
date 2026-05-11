@@ -1,4 +1,4 @@
-"""Сборка UI-хелперов, оркестратора маршрута и навигации (не точка входа процесса)."""
+"""Сборка UI-помощников, оркестратора маршрута и навигации (не точка входа процесса)."""
 
 from __future__ import annotations
 
@@ -11,14 +11,14 @@ from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.fsm.context import FSMContext
 from aiogram.types import (
-    CallbackQuery,
     InlineKeyboardMarkup,
     Message,
     ReplyKeyboardMarkup,
-    ReplyKeyboardRemove,
 )
 
 from app.bootstrap import Container
+from app.chat_ui import UNSET, ChatUiService
+from app.flow_mode_cfg import FLOW_MODE_CFG
 from app.navigation_flow import NavigationFlow
 from app.repo import Repo
 from app.states import Registration, TripCreate, TripSearch
@@ -31,9 +31,7 @@ from app.yaride_calendar import trip_calendar
 
 logger = logging.getLogger(__name__)
 
-STALE_CREATE_FLOW = (
-    "Сессия создания поездки устарела (часто это старая кнопка). Начни заново: «Создать поездку»."
-)
+STALE_CREATE_FLOW = "Сессия создания поездки устарела (часто это старая кнопка). Начни заново: «Создать поездку»."
 STALE_SEARCH_FLOW = "Сессия поиска устарела. Начни заново: «Найти поездки»."
 
 _c: Container | None = None
@@ -54,13 +52,16 @@ def _active_settings():
     return _ctx().settings
 
 
+# ── клавиатуры (тонкие обёртки над KeyboardFactory) ────────────────────────
+
+
 def main_keyboard(repo: Repo, tg_user_id: int) -> ReplyKeyboardMarkup:
     user = repo.users.get_user(tg_user_id)
     is_driver = user is not None and user["role"] == "driver"
     return _ctx().keyboards.main_keyboard(is_driver=is_driver)
 
 
-def flow_keyboard():
+def flow_keyboard() -> ReplyKeyboardMarkup:
     return _ctx().keyboards.flow_keyboard()
 
 
@@ -86,6 +87,10 @@ def districts_keyboard(prefix: str, districts: list[str]) -> InlineKeyboardMarku
 
 def add_back_button(markup: InlineKeyboardMarkup, back_callback: str) -> InlineKeyboardMarkup:
     return _ctx().keyboards.add_back_button(markup, back_callback)
+
+
+def with_back_button(markup: InlineKeyboardMarkup, target: str = "menu") -> InlineKeyboardMarkup:
+    return _ctx().keyboards.with_back_button(markup, target)
 
 
 def time_keyboard(prefix: str) -> InlineKeyboardMarkup:
@@ -132,6 +137,10 @@ def geo_suggested_start_stops_keyboard(ranked: list[tuple[sqlite3.Row, float]], 
     return _ctx().keyboards.geo_suggested_start_stops_keyboard(ranked, mode)
 
 
+def location_reply_keyboard() -> ReplyKeyboardMarkup:
+    return _ctx().keyboards.location_reply_keyboard()
+
+
 def account_kb_menu(show_become_driver: bool) -> InlineKeyboardMarkup:
     return _ctx().keyboards.account_menu_keyboard(show_become_driver=show_become_driver)
 
@@ -148,34 +157,94 @@ def _passenger_rating_hint(row) -> str:
     return f"{ra:.1f}, оценок: {rc}"
 
 
-async def track_bot_message(message: Message) -> None:
-    await _ctx().chat_ui.track_bot_message(message)
+# ── anchor API: тонкие обёртки над ChatUiService ───────────────────────────
 
 
-async def send_clean_message(message: Message, text: str, **kwargs) -> Message:
-    return await _ctx().chat_ui.send_clean_message(message, text, **kwargs)
+def chat_ui() -> ChatUiService:
+    return _ctx().chat_ui
 
 
-async def send_flow_step(message: Message, text: str, inline_markup: InlineKeyboardMarkup) -> None:
-    await _ctx().chat_ui.send_flow_step(message, text, inline_markup)
+async def open_flow(
+    *,
+    chat_id: int,
+    bot: Bot,
+    flow_kind: str,
+    text: str,
+    inline_markup: InlineKeyboardMarkup | None = None,
+    reply_keyboard: ReplyKeyboardMarkup | None = None,
+    reply_hint: str = "Кнопки навигации ниже:",
+) -> int:
+    return await chat_ui().open_flow(
+        chat_id=chat_id,
+        bot=bot,
+        flow_kind=flow_kind,
+        text=text,
+        inline_markup=inline_markup,
+        reply_keyboard=reply_keyboard,
+        reply_hint=reply_hint,
+    )
 
 
-async def edit_or_send_clean(callback: CallbackQuery, text: str, **kwargs) -> None:
-    await _ctx().chat_ui.edit_or_send_clean(callback, text, **kwargs)
+async def update_flow(
+    *,
+    chat_id: int,
+    bot: Bot,
+    flow_kind: str,
+    text: str,
+    inline_markup: InlineKeyboardMarkup | None = None,
+    reply_keyboard=UNSET,
+    reply_hint: str = "Кнопки навигации ниже:",
+) -> int:
+    return await chat_ui().update_flow(
+        chat_id=chat_id,
+        bot=bot,
+        flow_kind=flow_kind,
+        text=text,
+        inline_markup=inline_markup,
+        reply_keyboard=reply_keyboard,
+        reply_hint=reply_hint,
+    )
 
 
-async def cleanup_chat(message: Message) -> int | None:
-    return await _ctx().chat_ui.cleanup_chat(message)
+async def close_flow(*, chat_id: int, bot: Bot, keep_message_id: int | None = None) -> None:
+    await chat_ui().close_flow(chat_id=chat_id, bot=bot, keep_message_id=keep_message_id)
 
 
-async def drop_empty_chat_bridge(message: Message, bridge_id: int | None) -> None:
-    await _ctx().chat_ui.drop_empty_chat_bridge(message, bridge_id)
+async def send_post_flow_message(
+    *,
+    chat_id: int,
+    bot: Bot,
+    text: str,
+    inline_markup: InlineKeyboardMarkup | None = None,
+    reply_keyboard: ReplyKeyboardMarkup | None = None,
+    reply_hint: str = "Главное меню:",
+) -> int:
+    """Одиночное «notice»-сообщение: предыдущее notice (или любой anchor) заменяется.
+
+    Следующий обычный `open_flow` удалит этот notice автоматически —
+    «Поездка создана / отменена / нет избранных» больше не накапливаются в чате.
+    """
+    return await chat_ui().replace_with_notice(
+        chat_id=chat_id,
+        bot=bot,
+        text=text,
+        inline_markup=inline_markup,
+        reply_keyboard=reply_keyboard,
+        reply_hint=reply_hint,
+    )
 
 
-async def _delete_message_safe(chat_id: int, message_id: int, bot) -> None:
+async def delete_user_message(message: Message) -> None:
+    await chat_ui().delete_user_message(message)
+
+
+# ── гео-подсказки на шаге выбора отправления ───────────────────────────────
+
+
+async def _safe_delete_message(bot: Bot, chat_id: int, message_id: int) -> None:
     try:
         await bot.delete_message(chat_id, message_id)
-    except TelegramBadRequest:
+    except (TelegramBadRequest, Exception):
         pass
 
 
@@ -185,83 +254,17 @@ async def _send_or_edit_geo_suggestions(
     text: str,
     markup: InlineKeyboardMarkup,
 ) -> int:
+    """Отдельное сообщение «Ближайшие остановки» (не anchor): edit при наличии, иначе send."""
     bot = message.bot
     chat_id = message.chat.id
     if prev_mid is not None:
         try:
-            await bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=prev_mid,
-                text=text,
-                reply_markup=markup,
-            )
+            await bot.edit_message_text(chat_id=chat_id, message_id=prev_mid, text=text, reply_markup=markup)
             return prev_mid
         except TelegramBadRequest:
-            await _delete_message_safe(chat_id, prev_mid, bot)
+            await _safe_delete_message(bot, chat_id, prev_mid)
     sent = await message.answer(text, reply_markup=markup)
-    await track_bot_message(sent)
     return sent.message_id
-
-
-async def reply_stop_step_after_location(message: Message, text: str, markup: InlineKeyboardMarkup) -> None:
-    await message.answer("\u2060", reply_markup=ReplyKeyboardRemove())
-    sent = await message.answer(text, reply_markup=markup)
-    await track_bot_message(sent)
-
-
-async def hint_start_locality_geo(message: Message, mode: str) -> None:
-    _ = mode
-    sent = await message.answer(
-        "📍 Отправь геолокацию — покажем ближайшие остановки посадки (или выбери город из списка выше).",
-        reply_markup=_ctx().keyboards.location_reply_keyboard(),
-    )
-    await track_bot_message(sent)
-
-
-FLOW_MODE_CFG = {
-    "search": {
-        "state_group": TripSearch,
-        "start_locality_prefix": "Sfl",
-        "start_district_prefix": "Sfd",
-        "start_admin_prefix": "Sfa",
-        "start_stop_prefix": "Sfp",
-        "end_locality_prefix": "Stl",
-        "end_district_prefix": "Std",
-        "end_admin_prefix": "Sta",
-        "end_stop_prefix": "Stp",
-        "start_locality_back": "search_start_locality",
-        "start_district_back": "search_start_district",
-        "start_admin_back": "search_start_admin",
-        "start_stop_back": "search_start_stop",
-        "end_locality_back": "search_end_locality",
-        "end_district_back": "search_end_district",
-        "end_admin_back": "search_end_admin",
-        "end_stop_back": "search_end_stop",
-        "entry_text": "Откуда едем: выбери населённый пункт или город:",
-        "end_entry_text": "Куда едем: выбери населённый пункт или город:",
-    },
-    "create": {
-        "state_group": TripCreate,
-        "start_locality_prefix": "Cfl",
-        "start_district_prefix": "Cfd",
-        "start_admin_prefix": "Cfa",
-        "start_stop_prefix": "Cfp",
-        "end_locality_prefix": "Ctl",
-        "end_district_prefix": "Ctd",
-        "end_admin_prefix": "Cta",
-        "end_stop_prefix": "Ctp",
-        "start_locality_back": "create_start_locality",
-        "start_district_back": "create_start_district",
-        "start_admin_back": "create_start_admin",
-        "start_stop_back": "create_start_stop",
-        "end_locality_back": "create_end_locality",
-        "end_district_back": "create_end_district",
-        "end_admin_back": "create_end_admin",
-        "end_stop_back": "create_end_stop",
-        "entry_text": "Старт поездки: выбери населённый пункт или город:",
-        "end_entry_text": "Финиш поездки: выбери населённый пункт или город:",
-    },
-}
 
 
 def configure(container: Container) -> tuple[TripFlowOrchestrator, NavigationFlow]:
@@ -271,24 +274,20 @@ def configure(container: Container) -> tuple[TripFlowOrchestrator, NavigationFlo
 
     orch = TripFlowOrchestrator(
         mode_cfg=FLOW_MODE_CFG,
-        send_flow_step=send_flow_step,
-        edit_or_send_clean=edit_or_send_clean,
+        chat_ui=container.chat_ui,
         add_back_button=add_back_button,
         localities_keyboard=localities_keyboard,
         districts_keyboard=districts_keyboard,
         stops_keyboard=stops_keyboard,
+        location_reply_keyboard=location_reply_keyboard,
         trip_calendar_factory=trip_calendar,
-        reply_stop_step_message=reply_stop_step_after_location,
-        on_begin_start_locality_shown=hint_start_locality_geo,
     )
 
     nav = NavigationFlow(
         registration_state=Registration,
         trip_search_state=TripSearch,
         trip_create_state=TripCreate,
-        edit_or_send_clean=edit_or_send_clean,
-        send_flow_step=send_flow_step,
-        send_clean_message=send_clean_message,
+        chat_ui=container.chat_ui,
         main_keyboard=main_keyboard,
         role_switch_keyboard=role_switch_keyboard,
         add_back_button=add_back_button,
@@ -298,6 +297,7 @@ def configure(container: Container) -> tuple[TripFlowOrchestrator, NavigationFlo
         time_keyboard=time_keyboard,
         seats_keyboard=seats_keyboard,
         trip_calendar_factory=trip_calendar,
+        mode_cfg=FLOW_MODE_CFG,
     )
     FLOW_ORCHESTRATOR = orch
     NAVIGATION_FLOW = nav
@@ -311,6 +311,7 @@ async def _handle_start_locality_geo(
     *,
     mode: str,
 ) -> None:
+    """Геолокация на шаге выбора отправления: показать топ остановок или перейти к району."""
     assert FLOW_ORCHESTRATOR is not None
     loc = message.location
     if loc is None:
@@ -320,49 +321,39 @@ async def _handle_start_locality_geo(
     data = await state.get_data()
     prev_mid_raw = data.get(GEO_SUGGEST_MESSAGE_KEY)
     prev_mid: int | None = int(prev_mid_raw) if prev_mid_raw is not None else None
+
     loc_ids = list(data.get(GEO_USER_LOCATION_IDS_KEY) or [])
     loc_ids.append(message.message_id)
     await state.update_data(**{GEO_USER_LOCATION_IDS_KEY: loc_ids})
 
     st = _active_settings()
-    ranked = repo.routes.nearest_stops_global(
-        lat,
-        lng,
-        limit=st.geo_suggest_limit,
-        max_km=st.geo_suggest_max_km,
-    )
+    ranked = repo.routes.nearest_stops_global(lat, lng, limit=st.geo_suggest_limit, max_km=st.geo_suggest_max_km)
     if ranked:
         txt = (
             "Ближайшие остановки посадки к твоей точке (км по прямой до точки остановки в каталоге, не время в пути). "
             "Выбери кнопку ниже или продолжи выбор населённого пункта кнопками в сообщении выше."
         )
         mid = await _send_or_edit_geo_suggestions(
-            message,
-            prev_mid,
-            txt,
-            geo_suggested_start_stops_keyboard(ranked, mode),
+            message, prev_mid, txt, geo_suggested_start_stops_keyboard(ranked, mode)
         )
         await state.update_data(**{GEO_SUGGEST_MESSAGE_KEY: mid})
         return
 
     if prev_mid is not None:
-        await _delete_message_safe(message.chat.id, prev_mid, message.bot)
+        await _safe_delete_message(message.bot, message.chat.id, prev_mid)
     await state.update_data(**{GEO_SUGGEST_MESSAGE_KEY: None})
 
     resolved = repo.routes.nearest_locality_from_geo(lat, lng, max_km=st.locality_geo_max_km)
     if not resolved:
-        sent_err = await message.answer(
-            "Не удалось подобрать остановки или город по координатам (слишком далеко или нет данных). Выбери город из списка.",
-            reply_markup=ReplyKeyboardRemove(),
-        )
-        await track_bot_message(sent_err)
+        try:
+            await message.answer(
+                "Не удалось подобрать остановки или город по координатам (слишком далеко или нет данных). "
+                "Выбери город из списка."
+            )
+        except Exception:
+            pass
         return
-    locality, dkm = resolved
-    sent_loc = await message.answer(
-        f"Населённый пункт отправления: «{locality}» (~{dkm:.1f} км). Выбери район на следующем шаге.",
-        reply_markup=ReplyKeyboardRemove(),
-    )
-    await track_bot_message(sent_loc)
+    locality, _dkm = resolved
     await delete_tracked_user_geo_messages(message.bot, message.chat.id, state)
     await FLOW_ORCHESTRATOR.apply_start_locality_from_geo(message, state, repo, mode, locality)
 
@@ -375,7 +366,7 @@ def _env_bool(name: str, default: bool) -> bool:
 
 
 async def push_main_menu_after_restart(bot: Bot, repo: Repo) -> None:
-    """После рестарта FSM в памяти пуст; рассылаем главное меню, чтобы сменить reply-клавиатуру."""
+    """После рестарта рассылаем главное меню, чтобы сменить reply-клавиатуру."""
     if not _env_bool("YARIDE_PUSH_MENU_ON_START", True):
         logger.info("Меню после рестарта отключено (YARIDE_PUSH_MENU_ON_START)")
         return
@@ -386,13 +377,12 @@ async def push_main_menu_after_restart(bot: Bot, repo: Repo) -> None:
     ok = skip = 0
     for tg_user_id in ids:
         try:
-            sent = await bot.send_message(
+            await bot.send_message(
                 tg_user_id,
                 text,
                 reply_markup=main_keyboard(repo, tg_user_id),
                 disable_notification=True,
             )
-            await track_bot_message(sent)
             ok += 1
         except TelegramForbiddenError:
             skip += 1
@@ -411,3 +401,7 @@ async def push_main_menu_after_restart(bot: Bot, repo: Repo) -> None:
         len(ids),
         skip,
     )
+
+
+def stale_flow_text(mode: str) -> str:
+    return STALE_SEARCH_FLOW if mode == "search" else STALE_CREATE_FLOW

@@ -15,19 +15,45 @@ from app.states import AccountUpgrade
 
 router = Router()
 
+FLOW_KIND = "account"
+
+
+def _account_root_markup(user_row):
+    from app.bot_support import account_kb_menu, with_back_button
+
+    return with_back_button(
+        account_kb_menu(show_become_driver=user_row["role"] == "passenger"),
+        target="menu",
+    )
+
 
 @router.message(F.text == "Аккаунт")
 async def account_open(message: Message, repo: Repo) -> None:
-    from app.bot_support import account_kb_menu, send_clean_message
+    from app.bot_support import (
+        close_flow,
+        delete_user_message,
+        main_keyboard,
+        open_flow,
+        send_post_flow_message,
+    )
 
     user = repo.users.get_user(message.from_user.id)
+    await delete_user_message(message)
     if not user:
-        await send_clean_message(message, "Сначала зарегистрируйся через /start.")
+        await close_flow(chat_id=message.chat.id, bot=message.bot)
+        await send_post_flow_message(
+            chat_id=message.chat.id,
+            bot=message.bot,
+            text="Сначала зарегистрируйся через /start.",
+            reply_keyboard=main_keyboard(repo, message.from_user.id),
+        )
         return
-    await send_clean_message(
-        message,
-        "Раздел «Аккаунт»:",
-        reply_markup=account_kb_menu(show_become_driver=user["role"] == "passenger"),
+    await open_flow(
+        chat_id=message.chat.id,
+        bot=message.bot,
+        flow_kind=FLOW_KIND,
+        text="Раздел «Аккаунт»:",
+        inline_markup=_account_root_markup(user),
     )
 
 
@@ -35,11 +61,11 @@ async def account_open(message: Message, repo: Repo) -> None:
 async def account_panel(callback: CallbackQuery, state: FSMContext, repo: Repo) -> None:
     from app.bot_support import (
         account_kb_back,
-        account_kb_menu,
-        edit_or_send_clean,
+        close_flow,
         flow_keyboard,
         main_keyboard,
-        send_clean_message,
+        send_post_flow_message,
+        update_flow,
     )
 
     action = callback.data.split(":", 1)[1]
@@ -47,23 +73,31 @@ async def account_panel(callback: CallbackQuery, state: FSMContext, repo: Repo) 
     if not user:
         await callback.answer("Сначала /start.", show_alert=True)
         return
+    if not callback.message:
+        await callback.answer()
+        return
 
-    show_drv = user["role"] == "passenger"
-    menu = account_kb_menu(show_become_driver=show_drv)
+    chat_id = callback.message.chat.id
+    bot = callback.bot
     back = account_kb_back()
 
     if action == "root":
-        await edit_or_send_clean(callback, "Раздел «Аккаунт»:", reply_markup=menu)
+        await update_flow(
+            chat_id=chat_id,
+            bot=bot,
+            flow_kind=FLOW_KIND,
+            text="Раздел «Аккаунт»:",
+            inline_markup=_account_root_markup(user),
+        )
         await callback.answer()
         return
 
     if action == "main_menu":
-        if callback.message:
-            await send_clean_message(
-                callback.message,
-                "Главное меню",
-                reply_markup=main_keyboard(repo, callback.from_user.id),
-            )
+        # Совместимость: старые anchor могут содержать кнопку «⬅ Главное меню».
+        await close_flow(chat_id=chat_id, bot=bot)
+        await send_post_flow_message(
+            chat_id=chat_id, bot=bot, text="Главное меню", reply_keyboard=main_keyboard(repo, callback.from_user.id)
+        )
         await callback.answer()
         return
 
@@ -73,7 +107,7 @@ async def account_panel(callback: CallbackQuery, state: FSMContext, repo: Repo) 
         text = (
             f"Средний рейтинг: {ra:.1f}\nВсего оценок: {rc}" if rc > 0 else "Пока нет оценок от других пользователей."
         )
-        await edit_or_send_clean(callback, text, reply_markup=back)
+        await update_flow(chat_id=chat_id, bot=bot, flow_kind=FLOW_KIND, text=text, inline_markup=back)
         await callback.answer()
         return
 
@@ -95,7 +129,7 @@ async def account_panel(callback: CallbackQuery, state: FSMContext, repo: Repo) 
             txt = "Оценки после поездок:\n" + "\n".join(lines)
             if len(rows) > 25:
                 txt += "\n…"
-        await edit_or_send_clean(callback, txt, reply_markup=back)
+        await update_flow(chat_id=chat_id, bot=bot, flow_kind=FLOW_KIND, text=txt, inline_markup=back)
         await callback.answer()
         return
 
@@ -105,7 +139,7 @@ async def account_panel(callback: CallbackQuery, state: FSMContext, repo: Repo) 
             txt = f"Имя в сервисе: {user['name']}\nUsername в Telegram: @{un}"
         else:
             txt = f"Имя в сервисе: {user['name']}\nUsername в Telegram: не указан в профиле Telegram."
-        await edit_or_send_clean(callback, txt, reply_markup=back)
+        await update_flow(chat_id=chat_id, bot=bot, flow_kind=FLOW_KIND, text=txt, inline_markup=back)
         await callback.answer()
         return
 
@@ -114,12 +148,17 @@ async def account_panel(callback: CallbackQuery, state: FSMContext, repo: Repo) 
             await callback.answer("Ты уже водитель.", show_alert=True)
             return
         await state.set_state(AccountUpgrade.waiting_dl_series)
-        await edit_or_send_clean(
-            callback,
-            "Стать водителем: проверка формата ВУ (без запросов в ГИБДД).\n\n"
-            "Введи серию и номер как на пластиковом бланке: 4 цифры, 2 буквы "
-            "(А, В, Е, К, М, Н, О, Р, С, Т, У, Х), 6 цифр. Можно с пробелами — например 9916 АВ 123456.",
-            reply_markup=flow_keyboard(),
+        await update_flow(
+            chat_id=chat_id,
+            bot=bot,
+            flow_kind=FLOW_KIND,
+            text=(
+                "Стать водителем: проверка формата ВУ (без запросов в ГИБДД).\n\n"
+                "Введи серию и номер как на пластиковом бланке: 4 цифры, 2 буквы "
+                "(А, В, Е, К, М, Н, О, Р, С, Т, У, Х), 6 цифр. Можно с пробелами — например 9916 АВ 123456."
+            ),
+            inline_markup=None,
+            reply_keyboard=flow_keyboard(),
         )
         await callback.answer()
         return
@@ -129,43 +168,85 @@ async def account_panel(callback: CallbackQuery, state: FSMContext, repo: Repo) 
 
 @router.message(AccountUpgrade.waiting_dl_series)
 async def account_upgrade_dl_series(message: Message, state: FSMContext) -> None:
-    from app.bot_support import flow_keyboard, send_clean_message
+    from app.bot_support import delete_user_message, flow_keyboard, update_flow
 
     ok, normalized, err = normalize_dl_series_number(message.text or "")
+    await delete_user_message(message)
     if not ok:
-        await send_clean_message(message, err or "Некорректные данные ВУ.")
+        await update_flow(
+            chat_id=message.chat.id,
+            bot=message.bot,
+            flow_kind=FLOW_KIND,
+            text=err or "Некорректные данные ВУ.",
+            reply_keyboard=flow_keyboard(),
+        )
         return
     await state.update_data(dl_series_number=normalized)
     await state.set_state(AccountUpgrade.waiting_dl_expiry)
-    await send_clean_message(
-        message,
-        "Введи дату окончания срока действия ВУ (поле «3b») в формате ДД.ММ.ГГГГ.",
-        reply_markup=flow_keyboard(),
+    await update_flow(
+        chat_id=message.chat.id,
+        bot=message.bot,
+        flow_kind=FLOW_KIND,
+        text="Введи дату окончания срока действия ВУ (поле «3b») в формате ДД.ММ.ГГГГ.",
+        reply_keyboard=flow_keyboard(),
     )
 
 
 @router.message(AccountUpgrade.waiting_dl_expiry)
 async def account_upgrade_dl_expiry(message: Message, state: FSMContext, repo: Repo) -> None:
-    from app.bot_support import main_keyboard, send_clean_message
+    from app.bot_support import (
+        close_flow,
+        delete_user_message,
+        flow_keyboard,
+        main_keyboard,
+        send_post_flow_message,
+        update_flow,
+    )
 
-    ok, expiry_date, err = parse_expiry_date(message.text or "")
+    raw = message.text or ""
+    await delete_user_message(message)
+    ok, expiry_date, err = parse_expiry_date(raw)
     if not ok or not expiry_date:
-        await send_clean_message(message, err or "Некорректная дата.")
+        await update_flow(
+            chat_id=message.chat.id,
+            bot=message.bot,
+            flow_kind=FLOW_KIND,
+            text=err or "Некорректная дата.",
+            reply_keyboard=flow_keyboard(),
+        )
         return
     ok_exp, msg_exp = validate_license_not_expired(expiry_date)
     if not ok_exp:
-        await send_clean_message(message, msg_exp or "ВУ недействительно.")
+        await update_flow(
+            chat_id=message.chat.id,
+            bot=message.bot,
+            flow_kind=FLOW_KIND,
+            text=msg_exp or "ВУ недействительно.",
+            reply_keyboard=flow_keyboard(),
+        )
         return
     user = repo.users.get_user(message.from_user.id)
     if not user or user["role"] != "passenger":
-        await send_clean_message(message, "Сессия устарела или роль уже изменена.")
         await state.clear()
+        await close_flow(chat_id=message.chat.id, bot=message.bot)
+        await send_post_flow_message(
+            chat_id=message.chat.id,
+            bot=message.bot,
+            text="Сессия устарела или роль уже изменена.",
+            reply_keyboard=main_keyboard(repo, message.from_user.id),
+        )
         return
     data = await state.get_data()
     dl_series = data.get("dl_series_number")
     if not dl_series:
-        await send_clean_message(message, "Сначала введи серию и номер ВУ.")
         await state.set_state(AccountUpgrade.waiting_dl_series)
+        await update_flow(
+            chat_id=message.chat.id,
+            bot=message.bot,
+            flow_kind=FLOW_KIND,
+            text="Сначала введи серию и номер ВУ.",
+            reply_keyboard=flow_keyboard(),
+        )
         return
     try:
         repo.users.upsert_user(
@@ -177,40 +258,69 @@ async def account_upgrade_dl_expiry(message: Message, state: FSMContext, repo: R
             dl_valid_until=expiry_date.isoformat(),
         )
     except ValueError as exc:
-        await send_clean_message(message, str(exc))
+        await update_flow(
+            chat_id=message.chat.id,
+            bot=message.bot,
+            flow_kind=FLOW_KIND,
+            text=str(exc),
+            reply_keyboard=flow_keyboard(),
+        )
         return
     await state.clear()
-    await send_clean_message(
-        message,
-        "Ты зарегистрирован как водитель. Формат ВУ проверен локально.\n"
-        "В меню доступны создание поездок и раздел «Управление».",
-        reply_markup=main_keyboard(repo, message.from_user.id),
+    await close_flow(chat_id=message.chat.id, bot=message.bot)
+    await send_post_flow_message(
+        chat_id=message.chat.id,
+        bot=message.bot,
+        text=(
+            "Ты зарегистрирован как водитель. Формат ВУ проверен локально.\n"
+            "В меню доступны создание поездок и раздел «Управление»."
+        ),
+        reply_keyboard=main_keyboard(repo, message.from_user.id),
     )
 
 
 @router.message(F.text == "⬅ Назад", StateFilter(AccountUpgrade.waiting_dl_expiry))
 async def account_upgrade_back_from_expiry(message: Message, state: FSMContext) -> None:
-    from app.bot_support import flow_keyboard, send_clean_message
+    from app.bot_support import delete_user_message, flow_keyboard, update_flow
 
+    await delete_user_message(message)
     await state.set_state(AccountUpgrade.waiting_dl_series)
-    await send_clean_message(
-        message,
-        "Введи серию и номер ВУ как на пластиковом бланке.",
-        reply_markup=flow_keyboard(),
+    await update_flow(
+        chat_id=message.chat.id,
+        bot=message.bot,
+        flow_kind=FLOW_KIND,
+        text="Введи серию и номер ВУ как на пластиковом бланке.",
+        reply_keyboard=flow_keyboard(),
     )
 
 
 @router.message(F.text == "⬅ Назад", StateFilter(AccountUpgrade.waiting_dl_series))
 async def account_upgrade_back_from_series(message: Message, state: FSMContext, repo: Repo) -> None:
-    from app.bot_support import account_kb_menu, send_clean_message
+    from app.bot_support import (
+        close_flow,
+        delete_user_message,
+        main_keyboard,
+        send_post_flow_message,
+        update_flow,
+    )
 
     await state.clear()
+    await delete_user_message(message)
     user = repo.users.get_user(message.from_user.id)
     if not user:
-        await send_clean_message(message, "Сначала зарегистрируйся через /start.")
+        await close_flow(chat_id=message.chat.id, bot=message.bot)
+        await send_post_flow_message(
+            chat_id=message.chat.id,
+            bot=message.bot,
+            text="Сначала зарегистрируйся через /start.",
+            reply_keyboard=main_keyboard(repo, message.from_user.id),
+        )
         return
-    await send_clean_message(
-        message,
-        "Раздел «Аккаунт»:",
-        reply_markup=account_kb_menu(show_become_driver=user["role"] == "passenger"),
+    await update_flow(
+        chat_id=message.chat.id,
+        bot=message.bot,
+        flow_kind=FLOW_KIND,
+        text="Раздел «Аккаунт»:",
+        inline_markup=_account_root_markup(user),
+        reply_keyboard=None,
     )

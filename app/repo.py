@@ -1043,9 +1043,7 @@ class RatingRepository(_BaseRepository):
             rated_name = str(row["rated_display_name"] or "")
             kind = str(row["prompt_kind"])
             if kind == "p2d":
-                prompt_text = (
-                    f"Поездка #{trip_id} состоялась. Оцените водителя «{rated_name}» (от 1 до 5):"
-                )
+                prompt_text = f"Поездка #{trip_id} состоялась. Оцените водителя «{rated_name}» (от 1 до 5):"
             else:
                 prompt_text = f"Поездка #{trip_id}. Оцените пассажира «{rated_name}» (от 1 до 5):"
 

@@ -19,9 +19,7 @@ class BookingConcurrencyTests(TestCase):
                 repo = Repo(db)
 
                 with db.transaction() as conn:
-                    rp = conn.execute(
-                        "SELECT id FROM route_points ORDER BY id LIMIT 2"
-                    ).fetchall()
+                    rp = conn.execute("SELECT id FROM route_points ORDER BY id LIMIT 2").fetchall()
                     self.assertGreaterEqual(len(rp), 2, "need two route points")
                     start_id = int(rp[0]["id"])
                     end_id = int(rp[1]["id"])
@@ -32,9 +30,7 @@ class BookingConcurrencyTests(TestCase):
                         VALUES (910001, 'Driver', NULL, 'driver')
                         """
                     )
-                    driver_row = conn.execute(
-                        "SELECT id FROM users WHERE tg_user_id = 910001"
-                    ).fetchone()
+                    driver_row = conn.execute("SELECT id FROM users WHERE tg_user_id = 910001").fetchone()
                     assert driver_row is not None
                     driver_internal = int(driver_row["id"])
 

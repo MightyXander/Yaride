@@ -1,23 +1,23 @@
+"""Оркестратор шагов flow поиска и создания поездки на anchor-API (этап 4)."""
+
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from typing import Any
 
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message, ReplyKeyboardRemove
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 
-# Несколько подрайонов в районе, но мало остановок суммарно — один список кнопок вместо шага «подрайон».
+from app.chat_ui import UNSET, ChatUiService
+
 DISTRICT_MERGED_STOPS_MAX = 15
 
-# Совпадает с GEO_SUGGEST_MESSAGE_KEY в app.bot_support — сообщение с топом остановок по гео.
 _GEO_SUGGEST_MESSAGE_KEY = "geo_suggest_message_id"
 
-# Сообщения пользователя с геолокацией (удаляем после выбора остановки или перехода к району по гео-городу).
 GEO_USER_LOCATION_IDS_KEY = "geo_user_location_message_ids"
 
 
 async def delete_tracked_user_geo_messages(bot, chat_id: int, state: FSMContext) -> None:
-    """Удаляет из чата все сохранённые геосообщения пользователя и очищает список в FSM."""
     data = await state.get_data()
     for mid in list(data.get(GEO_USER_LOCATION_IDS_KEY) or []):
         try:
@@ -28,7 +28,6 @@ async def delete_tracked_user_geo_messages(bot, chat_id: int, state: FSMContext)
 
 
 def stale_flow_hint(mode: str) -> str:
-    """Текст для alert при устаревшем шаге поиска или создания поездки."""
     again = "«Найти поездки»" if mode == "search" else "«Создать поездку»"
     return f"Этот шаг устарел (или открыто старое сообщение с кнопками). Начни заново: {again}."
 
@@ -40,7 +39,6 @@ def _stop_matches_flow_selection(
     district: str,
     admin_area: str | None,
 ) -> bool:
-    """Проверка, что выбранная остановка соответствует выбранному нас. пункту и району (и подрайону, если есть)."""
     if pt is None:
         return False
     if str(pt["locality"]) != locality:
@@ -54,47 +52,72 @@ def _stop_matches_flow_selection(
 
 
 class TripFlowOrchestrator:
-    """Coordinates shared state transitions for search/create trip flows."""
+    """Сборка шагов flow поиска/создания поездки поверх ChatUiService.open_flow/update_flow."""
 
     def __init__(
         self,
+        *,
         mode_cfg: dict[str, dict[str, Any]],
-        send_flow_step: Callable[..., Any],
-        edit_or_send_clean: Callable[..., Any],
+        chat_ui: ChatUiService,
         add_back_button: Callable[..., Any],
         localities_keyboard: Callable[..., Any],
         districts_keyboard: Callable[..., Any],
         stops_keyboard: Callable[..., Any],
+        location_reply_keyboard: Callable[[], Any],
         trip_calendar_factory: Callable[..., Any],
-        reply_stop_step_message: Callable[[Message, str, InlineKeyboardMarkup], Awaitable[None]] | None = None,
-        on_begin_start_locality_shown: Callable[[Message, str], Awaitable[None]] | None = None,
     ) -> None:
         self._mode_cfg = mode_cfg
-        self._send_flow_step = send_flow_step
-        self._edit_or_send_clean = edit_or_send_clean
+        self._chat_ui = chat_ui
         self._add_back_button = add_back_button
         self._localities_keyboard = localities_keyboard
         self._districts_keyboard = districts_keyboard
         self._stops_keyboard = stops_keyboard
+        self._location_reply_keyboard = location_reply_keyboard
         self._trip_calendar_factory = trip_calendar_factory
-        self._reply_stop_step_message = reply_stop_step_message
-        self._on_begin_start_locality_shown = on_begin_start_locality_shown
 
     def _cfg(self, mode: str) -> dict[str, Any]:
         return self._mode_cfg[mode]
+
+    @staticmethod
+    def _flow_kind(mode: str) -> str:
+        return mode
+
+    async def _update(
+        self,
+        callback: CallbackQuery,
+        *,
+        mode: str,
+        text: str,
+        inline_markup: InlineKeyboardMarkup,
+        reply_keyboard: Any = UNSET,
+    ) -> None:
+        if not callback.message:
+            return
+        await self._chat_ui.update_flow(
+            chat_id=callback.message.chat.id,
+            bot=callback.bot,
+            flow_kind=self._flow_kind(mode),
+            text=text,
+            inline_markup=inline_markup,
+            reply_keyboard=reply_keyboard,
+        )
 
     async def begin(self, message: Message, state: FSMContext, repo: Any, mode: str) -> None:
         cfg = self._cfg(mode)
         await state.clear()
         localities = repo.routes.list_localities()
         await state.set_state(cfg["state_group"].start_locality)
-        await self._send_flow_step(
-            message,
-            cfg["entry_text"],
-            self._add_back_button(self._localities_keyboard(cfg["start_locality_prefix"], localities), "menu"),
+        await self._chat_ui.open_flow(
+            chat_id=message.chat.id,
+            bot=message.bot,
+            flow_kind=self._flow_kind(mode),
+            text=cfg["entry_text"],
+            inline_markup=self._add_back_button(
+                self._localities_keyboard(cfg["start_locality_prefix"], localities), "menu"
+            ),
+            reply_keyboard=self._location_reply_keyboard(),
+            reply_hint="📍 Отправь геолокацию — покажем ближайшие остановки посадки. Или выбери город кнопками выше.",
         )
-        if self._on_begin_start_locality_shown:
-            await self._on_begin_start_locality_shown(message, mode)
 
     async def apply_start_locality_from_geo(
         self,
@@ -104,13 +127,18 @@ class TripFlowOrchestrator:
         mode: str,
         locality: str,
     ) -> None:
-        """Переход к выбору района после определения населённого пункта отправления по геолокации."""
         cfg = self._cfg(mode)
         localities = repo.routes.list_localities()
         if locality not in localities:
-            await message.answer(
-                "Этого населённого пункта нет в списке маршрутов. Выбери из списка кнопкой.",
-                reply_markup=ReplyKeyboardRemove(),
+            await self._chat_ui.update_flow(
+                chat_id=message.chat.id,
+                bot=message.bot,
+                flow_kind=self._flow_kind(mode),
+                text="Этого населённого пункта нет в списке маршрутов. Выбери из списка кнопкой.",
+                inline_markup=self._add_back_button(
+                    self._localities_keyboard(cfg["start_locality_prefix"], localities), "menu"
+                ),
+                reply_keyboard=None,
             )
             return
         await state.update_data(start_locality=locality)
@@ -118,13 +146,16 @@ class TripFlowOrchestrator:
         await state.set_state(cfg["state_group"].start_district)
         markup = self._add_back_button(
             self._districts_keyboard(cfg["start_district_prefix"], districts),
-            cfg["start_district_back"],
+            cfg["start_locality_back"],
         )
-        text = f"{locality}: выбери район:"
-        if self._reply_stop_step_message:
-            await self._reply_stop_step_message(message, text, markup)
-        else:
-            await message.answer(text, reply_markup=markup)
+        await self._chat_ui.update_flow(
+            chat_id=message.chat.id,
+            bot=message.bot,
+            flow_kind=self._flow_kind(mode),
+            text=f"{locality}: выбери район:",
+            inline_markup=markup,
+            reply_keyboard=None,
+        )
 
     async def pick_locality(
         self,
@@ -136,11 +167,10 @@ class TripFlowOrchestrator:
     ) -> None:
         cfg = self._cfg(mode)
         data_pre = await state.get_data()
-        if is_start:
+        if is_start and callback.message:
             gid = data_pre.get(_GEO_SUGGEST_MESSAGE_KEY)
-            if callback.message:
-                await delete_tracked_user_geo_messages(callback.bot, callback.message.chat.id, state)
-            if gid is not None and callback.message:
+            await delete_tracked_user_geo_messages(callback.bot, callback.message.chat.id, state)
+            if gid is not None:
                 try:
                     await callback.bot.delete_message(callback.message.chat.id, int(gid))
                 except Exception:
@@ -179,10 +209,12 @@ class TripFlowOrchestrator:
         await state.update_data(**{key: locality})
         districts = repo.routes.list_districts(locality)
         await state.set_state(next_state)
-        await self._edit_or_send_clean(
+        await self._update(
             callback,
-            f"{locality}: выбери район{title_suffix}:",
-            reply_markup=self._add_back_button(self._districts_keyboard(districts_prefix, districts), back_target),
+            mode=mode,
+            text=f"{locality}: выбери район{title_suffix}:",
+            inline_markup=self._add_back_button(self._districts_keyboard(districts_prefix, districts), back_target),
+            reply_keyboard=None if is_start else UNSET,
         )
         await callback.answer()
 
@@ -206,7 +238,6 @@ class TripFlowOrchestrator:
             return
 
         data = await state.get_data()
-
         locality_key = "start_locality" if is_start else "end_locality"
         if locality_key not in data:
             await callback.answer(stale_flow_hint(mode), show_alert=True)
@@ -240,13 +271,10 @@ class TripFlowOrchestrator:
                 state_stop = cfg["state_group"].start_stop if is_start else cfg["state_group"].end_stop
                 await state.set_state(state_stop)
                 hdr = f"Остановка {'посадки' if is_start else 'высадки'} ({district}) — все точки района:"
-                await self._edit_or_send_clean(
-                    callback,
-                    hdr,
-                    reply_markup=self._stops_keyboard(merged_stops, prefix_stop)
-                    if is_start
-                    else self._add_back_button(self._stops_keyboard(merged_stops, prefix_stop), back_district),
-                )
+                inline_kb = self._stops_keyboard(merged_stops, prefix_stop)
+                if not is_start:
+                    inline_kb = self._add_back_button(inline_kb, back_district)
+                await self._update(callback, mode=mode, text=hdr, inline_markup=inline_kb)
                 await callback.answer()
                 return
 
@@ -254,10 +282,11 @@ class TripFlowOrchestrator:
             await state.set_state(state_value)
             label = district if district else "без района"
             suffix = "" if is_start else " (конечная)"
-            await self._edit_or_send_clean(
+            await self._update(
                 callback,
-                f"{label}: выбери административный район{suffix}:",
-                reply_markup=self._add_back_button(self._districts_keyboard(prefix_admin, admin_areas), back_district),
+                mode=mode,
+                text=f"{label}: выбери административный район{suffix}:",
+                inline_markup=self._add_back_button(self._districts_keyboard(prefix_admin, admin_areas), back_district),
             )
             await callback.answer()
             return
@@ -269,12 +298,14 @@ class TripFlowOrchestrator:
         if len(stops) > 1:
             state_value = cfg["state_group"].start_stop if is_start else cfg["state_group"].end_stop
             await state.set_state(state_value)
-            await self._edit_or_send_clean(
+            inline_kb = self._stops_keyboard(stops, prefix_stop)
+            if not is_start:
+                inline_kb = self._add_back_button(inline_kb, back_admin)
+            await self._update(
                 callback,
-                f"Остановка {'посадки' if is_start else 'высадки'} ({admin_area}):",
-                reply_markup=self._stops_keyboard(stops, prefix_stop)
-                if is_start
-                else self._add_back_button(self._stops_keyboard(stops, prefix_stop), back_admin),
+                mode=mode,
+                text=f"Остановка {'посадки' if is_start else 'высадки'} ({admin_area}):",
+                inline_markup=inline_kb,
             )
             await callback.answer()
             return
@@ -284,17 +315,25 @@ class TripFlowOrchestrator:
         if is_start:
             localities = repo.routes.list_localities()
             await state.set_state(cfg["state_group"].end_locality)
-            await self._edit_or_send_clean(
+            await self._update(
                 callback,
-                f"Старт: {locality} -> {district} -> {admin_area} -> {stop['title']}.\nТеперь выбери конечный населённый пункт:",
-                reply_markup=self._localities_keyboard(cfg["end_locality_prefix"], localities),
+                mode=mode,
+                text=(
+                    f"Старт: {locality} -> {district} -> {admin_area} -> {stop['title']}.\n"
+                    "Теперь выбери конечный населённый пункт:"
+                ),
+                inline_markup=self._localities_keyboard(cfg["end_locality_prefix"], localities),
             )
         else:
             await state.set_state(cfg["state_group"].trip_date)
-            await self._edit_or_send_clean(
+            await self._update(
                 callback,
-                f"Конечная: {locality} -> {district} -> {admin_area} -> {stop['title']}.\nВыбери дату поездки (календарь):",
-                reply_markup=await self._trip_calendar_factory().start_calendar(),
+                mode=mode,
+                text=(
+                    f"Конечная: {locality} -> {district} -> {admin_area} -> {stop['title']}.\n"
+                    "Выбери дату поездки (календарь):"
+                ),
+                inline_markup=await self._trip_calendar_factory().start_calendar(),
             )
             await state.update_data(calendar_target=mode)
         await callback.answer()
@@ -339,26 +378,30 @@ class TripFlowOrchestrator:
         await state.set_state(state_value)
         prefix = cfg["start_stop_prefix"] if is_start else cfg["end_stop_prefix"]
         back = cfg["start_admin_back"] if is_start else cfg["end_admin_back"]
-        await self._edit_or_send_clean(
+        await self._update(
             callback,
-            f"Остановка {'посадки' if is_start else 'высадки'} ({admin_area}):",
-            reply_markup=self._add_back_button(self._stops_keyboard(stops, prefix), back),
+            mode=mode,
+            text=f"Остановка {'посадки' if is_start else 'высадки'} ({admin_area}):",
+            inline_markup=self._add_back_button(self._stops_keyboard(stops, prefix), back),
         )
         await callback.answer()
 
     async def pick_start_stop(self, callback: CallbackQuery, state: FSMContext, repo: Any, mode: str) -> None:
         cfg = self._cfg(mode)
         data = await state.get_data()
-        if data.get("merged_stop_pick"):
-            for key in ("start_locality", "start_district"):
-                if key not in data:
-                    await callback.answer(stale_flow_hint(mode), show_alert=True)
-                    return
-        else:
-            for key in ("start_locality", "start_district", "start_admin_area"):
-                if key not in data:
-                    await callback.answer(stale_flow_hint(mode), show_alert=True)
-                    return
+        required = (
+            ("start_locality", "start_district")
+            if data.get("merged_stop_pick")
+            else (
+                "start_locality",
+                "start_district",
+                "start_admin_area",
+            )
+        )
+        for key in required:
+            if key not in data:
+                await callback.answer(stale_flow_hint(mode), show_alert=True)
+                return
 
         parts = callback.data.split(":", 1)
         if len(parts) < 2:
@@ -387,10 +430,11 @@ class TripFlowOrchestrator:
         await state.update_data(**extras)
         localities = repo.routes.list_localities()
         await state.set_state(cfg["state_group"].end_locality)
-        await self._edit_or_send_clean(
+        await self._update(
             callback,
-            cfg["end_entry_text"],
-            reply_markup=self._add_back_button(
+            mode=mode,
+            text=cfg["end_entry_text"],
+            inline_markup=self._add_back_button(
                 self._localities_keyboard(cfg["end_locality_prefix"], localities),
                 cfg["start_stop_back"],
             ),
@@ -400,16 +444,15 @@ class TripFlowOrchestrator:
     async def pick_end_stop(self, callback: CallbackQuery, state: FSMContext, repo: Any, mode: str) -> None:
         cfg = self._cfg(mode)
         data = await state.get_data()
-        if data.get("merged_stop_pick"):
-            for key in ("start_point", "end_locality", "end_district"):
-                if key not in data:
-                    await callback.answer(stale_flow_hint(mode), show_alert=True)
-                    return
-        else:
-            for key in ("start_point", "end_locality", "end_district", "end_admin_area"):
-                if key not in data:
-                    await callback.answer(stale_flow_hint(mode), show_alert=True)
-                    return
+        required = (
+            ("start_point", "end_locality", "end_district")
+            if data.get("merged_stop_pick")
+            else ("start_point", "end_locality", "end_district", "end_admin_area")
+        )
+        for key in required:
+            if key not in data:
+                await callback.answer(stale_flow_hint(mode), show_alert=True)
+                return
 
         parts = callback.data.split(":", 1)
         if len(parts) < 2:
@@ -437,10 +480,11 @@ class TripFlowOrchestrator:
             extras_end["merged_stop_pick"] = False
         await state.update_data(**extras_end)
         await state.set_state(cfg["state_group"].trip_date)
-        await self._edit_or_send_clean(
+        await self._update(
             callback,
-            "Выбери дату поездки (календарь):",
-            reply_markup=self._add_back_button(
+            mode=mode,
+            text="Выбери дату поездки (календарь):",
+            inline_markup=self._add_back_button(
                 await self._trip_calendar_factory().start_calendar(),
                 cfg["end_stop_back"],
             ),
@@ -456,14 +500,24 @@ class TripFlowOrchestrator:
         mode: str,
         start_point: int,
     ) -> None:
-        """Выбор остановки посадки из подсказок после геолокации на первом шаге."""
         cfg = self._cfg(mode)
         pt = repo.routes.get_point(start_point)
         if pt is None or str(pt["kind"]) != "stop":
             await callback.answer("Остановка не найдена.", show_alert=True)
             return
+
+        data = await state.get_data()
         if callback.message:
-            await delete_tracked_user_geo_messages(callback.bot, callback.message.chat.id, state)
+            chat_id = callback.message.chat.id
+            bot = callback.bot
+            await delete_tracked_user_geo_messages(bot, chat_id, state)
+            gid_raw = data.get(_GEO_SUGGEST_MESSAGE_KEY)
+            if gid_raw is not None:
+                try:
+                    await bot.delete_message(chat_id, int(gid_raw))
+                except Exception:
+                    pass
+
         await state.update_data(
             start_locality=str(pt["locality"]),
             start_district=str(pt["district"] or ""),
@@ -474,12 +528,20 @@ class TripFlowOrchestrator:
         await state.update_data(**{_GEO_SUGGEST_MESSAGE_KEY: None})
         localities = repo.routes.list_localities()
         await state.set_state(cfg["state_group"].end_locality)
-        await self._edit_or_send_clean(
-            callback,
-            cfg["end_entry_text"],
-            reply_markup=self._add_back_button(
-                self._localities_keyboard(cfg["end_locality_prefix"], localities),
-                cfg["start_stop_back"],
-            ),
-        )
+
+        if callback.message:
+            chat_id = callback.message.chat.id
+            bot = callback.bot
+            await self._chat_ui.close_flow(chat_id=chat_id, bot=bot)
+            await self._chat_ui.open_flow(
+                chat_id=chat_id,
+                bot=bot,
+                flow_kind=self._flow_kind(mode),
+                text=cfg["end_entry_text"],
+                inline_markup=self._add_back_button(
+                    self._localities_keyboard(cfg["end_locality_prefix"], localities),
+                    cfg["start_stop_back"],
+                ),
+                reply_keyboard=None,
+            )
         await callback.answer()

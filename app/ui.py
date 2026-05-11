@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from aiogram.types import InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from app.config import Settings
@@ -119,9 +119,23 @@ class KeyboardFactory:
 
     @staticmethod
     def add_back_button(markup: InlineKeyboardMarkup, back_callback: str) -> InlineKeyboardMarkup:
-        # Inline-кнопки "Назад" отключены: навигация только через reply-кнопку.
+        # Inline-кнопки "Назад" в flow-маршруте отключены: навигация только через reply-кнопку.
+        # Для root-меню используется `with_back_button` — он явно добавляет inline-кнопку.
         _ = back_callback
         return markup
+
+    @staticmethod
+    def with_back_button(markup: InlineKeyboardMarkup, target: str = "menu") -> InlineKeyboardMarkup:
+        """Добавляет в конец клавиатуры inline-кнопку «⬅ Назад» с `callback_data=f"back:{target}"`.
+
+        Используется в root-меню (Управление / Мои брони / Избранные / Аккаунт), чтобы дать
+        одним кликом уйти обратно. `target` обрабатывается в `NavigationFlow.handle_callback_back`
+        (для `menu` — clear + Главное меню; кастомные таргеты — где-то ниже по стеку handler'ов).
+        Сама исходная клавиатура не модифицируется — возвращается новый markup.
+        """
+        rows = [list(row) for row in markup.inline_keyboard]
+        rows.append([InlineKeyboardButton(text="⬅ Назад", callback_data=f"back:{target}")])
+        return InlineKeyboardMarkup(inline_keyboard=rows)
 
     def time_keyboard(self, prefix: str) -> InlineKeyboardMarkup:
         kb = InlineKeyboardBuilder()
@@ -257,7 +271,6 @@ class KeyboardFactory:
         kb.button(text="Имя в сервисе", callback_data="account:name")
         if show_become_driver:
             kb.button(text="Стать водителем", callback_data="account:upgrade_driver")
-        kb.button(text="⬅ Главное меню", callback_data="account:main_menu")
         kb.adjust(1)
         return kb.as_markup()
 
@@ -265,6 +278,5 @@ class KeyboardFactory:
     def account_back_keyboard() -> InlineKeyboardMarkup:
         kb = InlineKeyboardBuilder()
         kb.button(text="⬅ В аккаунт", callback_data="account:root")
-        kb.button(text="⬅ Главное меню", callback_data="account:main_menu")
         kb.adjust(1)
         return kb.as_markup()

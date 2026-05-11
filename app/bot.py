@@ -6,6 +6,8 @@ import asyncio
 import logging
 
 from aiogram import Bot, Dispatcher, Router
+from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ParseMode
 
 from app.bootstrap import attach_to_dispatcher, build_container
 from app.bot_support import configure, push_main_menu_after_restart
@@ -48,7 +50,7 @@ async def run() -> None:
     settings = container.settings
     repo = container.repo
 
-    bot = Bot(token=settings.bot_token)
+    bot = Bot(token=settings.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher()
     attach_to_dispatcher(dp, container, flow=flow, navigation_flow=nav)
     dp.include_router(router)

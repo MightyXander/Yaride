@@ -1,20 +1,29 @@
+"""Кнопка «Назад» (callback и reply) поверх anchor-API (этап 4)."""
+
 from __future__ import annotations
 
 from collections.abc import Callable
 from typing import Any
 
+from app.chat_ui import UNSET, ChatUiService
+from app.flow_mode_cfg import (
+    FLOW_MODE_CFG,
+    ROUTE_STEP_KEYS,
+    STEP_PARENT_CFG_KEY,
+    STEP_TO_STATE_ATTR,
+)
+
 
 class NavigationFlow:
-    """Handles back navigation for callback and reply buttons."""
+    """Возврат назад: callback `back:*` и reply «⬅ Назад». Все обновления через `chat_ui.update_flow`."""
 
     def __init__(
         self,
+        *,
         registration_state: Any,
         trip_search_state: Any,
         trip_create_state: Any,
-        edit_or_send_clean: Callable[..., Any],
-        send_flow_step: Callable[..., Any],
-        send_clean_message: Callable[..., Any],
+        chat_ui: ChatUiService,
         main_keyboard: Callable[..., Any],
         role_switch_keyboard: Callable[..., Any],
         add_back_button: Callable[..., Any],
@@ -24,13 +33,13 @@ class NavigationFlow:
         time_keyboard: Callable[..., Any],
         seats_keyboard: Callable[..., Any],
         trip_calendar_factory: Callable[..., Any],
+        mode_cfg: dict[str, dict[str, Any]] | None = None,
     ) -> None:
         self.registration_state = registration_state
         self.trip_search_state = trip_search_state
         self.trip_create_state = trip_create_state
-        self._edit_or_send_clean = edit_or_send_clean
-        self._send_flow_step = send_flow_step
-        self._send_clean_message = send_clean_message
+        self._mode_cfg = mode_cfg if mode_cfg is not None else FLOW_MODE_CFG
+        self._chat_ui = chat_ui
         self._main_keyboard = main_keyboard
         self._role_switch_keyboard = role_switch_keyboard
         self._add_back_button = add_back_button
@@ -41,15 +50,209 @@ class NavigationFlow:
         self._seats_keyboard = seats_keyboard
         self._trip_calendar_factory = trip_calendar_factory
 
+    def _trip_groups(self) -> tuple[Any, Any]:
+        return self.trip_search_state, self.trip_create_state
+
+    def _parse_route_target(self, target: str) -> tuple[str, str] | None:
+        for mode in ("search", "create"):
+            prefix = f"{mode}_"
+            if target.startswith(prefix):
+                rest = target[len(prefix) :]
+                if rest in ROUTE_STEP_KEYS:
+                    return mode, rest
+        return None
+
+    def _parent_back_target(self, cfg: dict[str, Any], step: str) -> str:
+        key = STEP_PARENT_CFG_KEY[step]
+        if key is None:
+            return "menu"
+        return str(cfg[key])
+
+    async def _update_callback_flow(
+        self,
+        callback: Any,
+        flow_kind: str,
+        text: str,
+        inline_markup: Any,
+        *,
+        reply_keyboard: Any = UNSET,
+    ) -> None:
+        if not callback.message:
+            return
+        await self._chat_ui.update_flow(
+            chat_id=callback.message.chat.id,
+            bot=callback.bot,
+            flow_kind=flow_kind,
+            text=text,
+            inline_markup=inline_markup,
+            reply_keyboard=reply_keyboard,
+        )
+
+    async def _update_message_flow(
+        self,
+        message: Any,
+        flow_kind: str,
+        text: str,
+        inline_markup: Any,
+        *,
+        reply_keyboard: Any = UNSET,
+    ) -> None:
+        await self._chat_ui.update_flow(
+            chat_id=message.chat.id,
+            bot=message.bot,
+            flow_kind=flow_kind,
+            text=text,
+            inline_markup=inline_markup,
+            reply_keyboard=reply_keyboard,
+        )
+
+    async def _route_callback_step(
+        self,
+        mode: str,
+        step: str,
+        callback: Any,
+        state: Any,
+        repo: Any,
+    ) -> None:
+        cfg = self._mode_cfg[mode]
+        sg = cfg["state_group"]
+        data = await state.get_data()
+        await state.set_state(getattr(sg, STEP_TO_STATE_ATTR[step]))
+        flow_kind = mode
+
+        if step == "start_locality":
+            locs = repo.routes.list_localities()
+            await self._update_callback_flow(
+                callback,
+                flow_kind,
+                cfg["entry_text"],
+                self._add_back_button(self._localities_keyboard(cfg["start_locality_prefix"], locs), "menu"),
+                reply_keyboard=UNSET,
+            )
+            return
+
+        if step == "start_district":
+            locality = data.get("start_locality")
+            if not locality:
+                return
+            districts = repo.routes.list_districts(str(locality))
+            await self._update_callback_flow(
+                callback,
+                flow_kind,
+                f"{locality}: выбери район:",
+                self._add_back_button(
+                    self._districts_keyboard(cfg["start_district_prefix"], districts), cfg["start_locality_back"]
+                ),
+            )
+            return
+
+        if step == "start_admin":
+            locality = data.get("start_locality")
+            district = data.get("start_district", "")
+            if locality is None:
+                return
+            admin_areas = repo.routes.list_admin_areas(str(locality), str(district))
+            await self._update_callback_flow(
+                callback,
+                flow_kind,
+                "Выбери административный район:",
+                self._add_back_button(
+                    self._districts_keyboard(cfg["start_admin_prefix"], admin_areas), cfg["start_district_back"]
+                ),
+            )
+            return
+
+        if step == "start_stop":
+            locality = data.get("start_locality")
+            district = data.get("start_district", "")
+            admin_area = data.get("start_admin_area", "")
+            if locality is None:
+                return
+            stops = repo.routes.list_stops(str(locality), str(district), str(admin_area))
+            await self._update_callback_flow(
+                callback,
+                flow_kind,
+                "Выбери остановку посадки:",
+                self._add_back_button(self._stops_keyboard(stops, cfg["start_stop_prefix"]), cfg["start_admin_back"]),
+            )
+            return
+
+        if step == "end_locality":
+            locs = repo.routes.list_localities()
+            await self._update_callback_flow(
+                callback,
+                flow_kind,
+                cfg["end_entry_text"],
+                self._add_back_button(
+                    self._localities_keyboard(cfg["end_locality_prefix"], locs),
+                    self._parent_back_target(cfg, step),
+                ),
+            )
+            return
+
+        if step == "end_district":
+            locality = data.get("end_locality")
+            if not locality:
+                return
+            districts = repo.routes.list_districts(str(locality))
+            await self._update_callback_flow(
+                callback,
+                flow_kind,
+                f"{locality}: выбери район (конечная):",
+                self._add_back_button(
+                    self._districts_keyboard(cfg["end_district_prefix"], districts), cfg["end_locality_back"]
+                ),
+            )
+            return
+
+        if step == "end_admin":
+            locality = data.get("end_locality")
+            district = data.get("end_district", "")
+            if locality is None:
+                return
+            admin_areas = repo.routes.list_admin_areas(str(locality), str(district))
+            await self._update_callback_flow(
+                callback,
+                flow_kind,
+                "Выбери административный район (конечная):",
+                self._add_back_button(
+                    self._districts_keyboard(cfg["end_admin_prefix"], admin_areas), cfg["end_district_back"]
+                ),
+            )
+            return
+
+        if step == "end_stop":
+            locality = data.get("end_locality")
+            district = data.get("end_district", "")
+            admin_area = data.get("end_admin_area", "")
+            if locality is None:
+                return
+            stops = repo.routes.list_stops(str(locality), str(district), str(admin_area))
+            await self._update_callback_flow(
+                callback,
+                flow_kind,
+                "Выбери остановку высадки:",
+                self._add_back_button(self._stops_keyboard(stops, cfg["end_stop_prefix"]), cfg["end_admin_back"]),
+            )
+
+    async def _go_to_main_menu(self, *, chat_id: int, bot: Any, repo: Any, tg_user_id: int) -> None:
+        await self._chat_ui.close_flow(chat_id=chat_id, bot=bot)
+        await self._chat_ui.replace_with_notice(
+            chat_id=chat_id, bot=bot, text="Главное меню", reply_keyboard=self._main_keyboard(repo, tg_user_id)
+        )
+
     async def handle_callback_back(self, callback: Any, state: Any, repo: Any) -> None:
         target = callback.data.split(":", 1)[1]
-        data = await state.get_data()
 
         if target == "menu":
             await state.clear()
-            await self._edit_or_send_clean(
-                callback, "Главное меню", reply_markup=self._main_keyboard(repo, callback.from_user.id)
-            )
+            if callback.message:
+                await self._go_to_main_menu(
+                    chat_id=callback.message.chat.id,
+                    bot=callback.bot,
+                    repo=repo,
+                    tg_user_id=callback.from_user.id,
+                )
             await callback.answer()
             return
 
@@ -57,431 +260,231 @@ class NavigationFlow:
             user = repo.users.get_user(callback.from_user.id)
             if not user:
                 await state.clear()
-                await self._edit_or_send_clean(
-                    callback,
-                    "Сначала зарегистрируйся через /start.",
-                    reply_markup=self._main_keyboard(repo, callback.from_user.id),
-                )
+                if callback.message:
+                    await self._go_to_main_menu(
+                        chat_id=callback.message.chat.id,
+                        bot=callback.bot,
+                        repo=repo,
+                        tg_user_id=callback.from_user.id,
+                    )
                 await callback.answer()
                 return
             await state.set_state(self.registration_state.waiting_role_switch_date)
-            await self._edit_or_send_clean(
+            await self._update_callback_flow(
                 callback,
+                "registration",
                 f"Текущая роль: {user['role']}.\nВыбери новую роль:",
-                reply_markup=self._role_switch_keyboard(user["role"]),
+                self._role_switch_keyboard(user["role"]),
+                reply_keyboard=None,
             )
             await callback.answer()
             return
 
-        if target == "search_start_locality":
-            await state.set_state(self.trip_search_state.start_locality)
-            locs = repo.routes.list_localities()
-            await self._edit_or_send_clean(
-                callback,
-                "Откуда едем: выбери населённый пункт или город:",
-                reply_markup=self._add_back_button(self._localities_keyboard("Sfl", locs), "menu"),
-            )
-        elif target == "search_start_district":
-            locality = data.get("start_locality")
-            if locality:
-                await state.set_state(self.trip_search_state.start_district)
-                districts = repo.routes.list_districts(str(locality))
-                await self._edit_or_send_clean(
-                    callback,
-                    f"{locality}: выбери район:",
-                    reply_markup=self._add_back_button(
-                        self._districts_keyboard("Sfd", districts),
-                        "search_start_locality",
-                    ),
-                )
-        elif target == "search_start_admin":
-            locality = data.get("start_locality")
-            district = data.get("start_district", "")
-            if locality is not None:
-                await state.set_state(self.trip_search_state.start_admin_area)
-                admin_areas = repo.routes.list_admin_areas(str(locality), str(district))
-                await self._edit_or_send_clean(
-                    callback,
-                    "Выбери административный район:",
-                    reply_markup=self._add_back_button(
-                        self._districts_keyboard("Sfa", admin_areas),
-                        "search_start_district",
-                    ),
-                )
-        elif target == "search_start_stop":
-            locality = data.get("start_locality")
-            district = data.get("start_district", "")
-            admin_area = data.get("start_admin_area", "")
-            if locality is not None:
-                await state.set_state(self.trip_search_state.start_stop)
-                stops = repo.routes.list_stops(str(locality), str(district), str(admin_area))
-                await self._edit_or_send_clean(
-                    callback,
-                    "Выбери остановку посадки:",
-                    reply_markup=self._add_back_button(
-                        self._stops_keyboard(stops, "Sfp"),
-                        "search_start_admin",
-                    ),
-                )
-        elif target == "search_end_locality":
-            await state.set_state(self.trip_search_state.end_locality)
-            locs = repo.routes.list_localities()
-            await self._edit_or_send_clean(
-                callback,
-                "Куда едем: выбери населённый пункт или город:",
-                reply_markup=self._add_back_button(self._localities_keyboard("Stl", locs), "search_start_stop"),
-            )
-        elif target == "search_end_district":
-            locality = data.get("end_locality")
-            if locality:
-                await state.set_state(self.trip_search_state.end_district)
-                districts = repo.routes.list_districts(str(locality))
-                await self._edit_or_send_clean(
-                    callback,
-                    f"{locality}: выбери район (конечная):",
-                    reply_markup=self._add_back_button(
-                        self._districts_keyboard("Std", districts),
-                        "search_end_locality",
-                    ),
-                )
-        elif target == "search_end_admin":
-            locality = data.get("end_locality")
-            district = data.get("end_district", "")
-            if locality is not None:
-                await state.set_state(self.trip_search_state.end_admin_area)
-                admin_areas = repo.routes.list_admin_areas(str(locality), str(district))
-                await self._edit_or_send_clean(
-                    callback,
-                    "Выбери административный район (конечная):",
-                    reply_markup=self._add_back_button(
-                        self._districts_keyboard("Sta", admin_areas),
-                        "search_end_district",
-                    ),
-                )
-        elif target == "search_end_stop":
-            locality = data.get("end_locality")
-            district = data.get("end_district", "")
-            admin_area = data.get("end_admin_area", "")
-            if locality is not None:
-                await state.set_state(self.trip_search_state.end_stop)
-                stops = repo.routes.list_stops(str(locality), str(district), str(admin_area))
-                await self._edit_or_send_clean(
-                    callback,
-                    "Выбери остановку высадки:",
-                    reply_markup=self._add_back_button(
-                        self._stops_keyboard(stops, "Stp"),
-                        "search_end_admin",
-                    ),
-                )
-        elif target == "create_start_locality":
-            await state.set_state(self.trip_create_state.start_locality)
-            locs = repo.routes.list_localities()
-            await self._edit_or_send_clean(
-                callback,
-                "Старт поездки: выбери населённый пункт или город:",
-                reply_markup=self._add_back_button(self._localities_keyboard("Cfl", locs), "menu"),
-            )
-        elif target == "create_start_district":
-            locality = data.get("start_locality")
-            if locality:
-                await state.set_state(self.trip_create_state.start_district)
-                districts = repo.routes.list_districts(str(locality))
-                await self._edit_or_send_clean(
-                    callback,
-                    f"{locality}: выбери район:",
-                    reply_markup=self._add_back_button(
-                        self._districts_keyboard("Cfd", districts),
-                        "create_start_locality",
-                    ),
-                )
-        elif target == "create_start_admin":
-            locality = data.get("start_locality")
-            district = data.get("start_district", "")
-            if locality is not None:
-                await state.set_state(self.trip_create_state.start_admin_area)
-                admin_areas = repo.routes.list_admin_areas(str(locality), str(district))
-                await self._edit_or_send_clean(
-                    callback,
-                    "Выбери административный район:",
-                    reply_markup=self._add_back_button(
-                        self._districts_keyboard("Cfa", admin_areas),
-                        "create_start_district",
-                    ),
-                )
-        elif target == "create_start_stop":
-            locality = data.get("start_locality")
-            district = data.get("start_district", "")
-            admin_area = data.get("start_admin_area", "")
-            if locality is not None:
-                await state.set_state(self.trip_create_state.start_stop)
-                stops = repo.routes.list_stops(str(locality), str(district), str(admin_area))
-                await self._edit_or_send_clean(
-                    callback,
-                    "Выбери остановку посадки:",
-                    reply_markup=self._add_back_button(
-                        self._stops_keyboard(stops, "Cfp"),
-                        "create_start_admin",
-                    ),
-                )
-        elif target == "create_end_locality":
-            await state.set_state(self.trip_create_state.end_locality)
-            locs = repo.routes.list_localities()
-            await self._edit_or_send_clean(
-                callback,
-                "Финиш поездки: выбери населённый пункт или город:",
-                reply_markup=self._add_back_button(self._localities_keyboard("Ctl", locs), "create_start_stop"),
-            )
-        elif target == "create_end_district":
-            locality = data.get("end_locality")
-            if locality:
-                await state.set_state(self.trip_create_state.end_district)
-                districts = repo.routes.list_districts(str(locality))
-                await self._edit_or_send_clean(
-                    callback,
-                    f"{locality}: выбери район (конечная):",
-                    reply_markup=self._add_back_button(
-                        self._districts_keyboard("Ctd", districts),
-                        "create_end_locality",
-                    ),
-                )
-        elif target == "create_end_admin":
-            locality = data.get("end_locality")
-            district = data.get("end_district", "")
-            if locality is not None:
-                await state.set_state(self.trip_create_state.end_admin_area)
-                admin_areas = repo.routes.list_admin_areas(str(locality), str(district))
-                await self._edit_or_send_clean(
-                    callback,
-                    "Выбери административный район (конечная):",
-                    reply_markup=self._add_back_button(
-                        self._districts_keyboard("Cta", admin_areas),
-                        "create_end_district",
-                    ),
-                )
-        elif target == "create_end_stop":
-            locality = data.get("end_locality")
-            district = data.get("end_district", "")
-            admin_area = data.get("end_admin_area", "")
-            if locality is not None:
-                await state.set_state(self.trip_create_state.end_stop)
-                stops = repo.routes.list_stops(str(locality), str(district), str(admin_area))
-                await self._edit_or_send_clean(
-                    callback,
-                    "Выбери остановку высадки:",
-                    reply_markup=self._add_back_button(
-                        self._stops_keyboard(stops, "Ctp"),
-                        "create_end_admin",
-                    ),
-                )
-        elif target == "create_date":
-            await state.set_state(self.trip_create_state.trip_date)
-            await self._edit_or_send_clean(
-                callback,
-                "Выбери дату поездки (календарь):",
-                reply_markup=self._add_back_button(
-                    await self._trip_calendar_factory().start_calendar(), "create_end_stop"
-                ),
-            )
-            await state.update_data(calendar_target="create")
-        elif target == "create_time":
-            await state.set_state(self.trip_create_state.departure_time)
-            await self._edit_or_send_clean(
-                callback,
-                "Выбери время отправления:",
-                reply_markup=self._add_back_button(self._time_keyboard("create_time"), "create_date"),
-            )
-        elif target == "create_seats":
-            await state.set_state(self.trip_create_state.seats)
-            await self._edit_or_send_clean(
-                callback,
-                "Выбери количество пассажиров:",
-                reply_markup=self._add_back_button(self._seats_keyboard(), "create_time"),
-            )
-        else:
-            await callback.answer("Нечего откатывать", show_alert=True)
+        parsed = self._parse_route_target(target)
+        if parsed:
+            mode, step = parsed
+            await self._route_callback_step(mode, step, callback, state, repo)
+            await callback.answer()
             return
 
-        await callback.answer()
+        if target == "create_date":
+            await state.set_state(self.trip_create_state.trip_date)
+            await self._update_callback_flow(
+                callback,
+                "create",
+                "Выбери дату поездки (календарь):",
+                self._add_back_button(await self._trip_calendar_factory().start_calendar(), "create_end_stop"),
+            )
+            await state.update_data(calendar_target="create")
+            await callback.answer()
+            return
+
+        if target == "create_time":
+            await state.set_state(self.trip_create_state.departure_time)
+            await self._update_callback_flow(
+                callback,
+                "create",
+                "Выбери время отправления:",
+                self._add_back_button(self._time_keyboard("create_time"), "create_date"),
+            )
+            await callback.answer()
+            return
+
+        if target == "create_seats":
+            await state.set_state(self.trip_create_state.seats)
+            await self._update_callback_flow(
+                callback,
+                "create",
+                "Выбери количество пассажиров:",
+                self._add_back_button(self._seats_keyboard(), "create_time"),
+            )
+            await callback.answer()
+            return
+
+        await callback.answer("Нечего откатывать", show_alert=True)
 
     async def handle_reply_back(self, message: Any, state: Any, repo: Any) -> None:
         current = await state.get_state()
         data = await state.get_data()
         tg_uid = message.from_user.id if getattr(message, "from_user", None) else 0
         if not current:
-            await self._send_clean_message(message, "Главное меню", reply_markup=self._main_keyboard(repo, tg_uid))
+            await self._go_to_main_menu(chat_id=message.chat.id, bot=message.bot, repo=repo, tg_user_id=tg_uid)
             return
 
-        is_search = "TripSearch" in current
-        is_create = "TripCreate" in current
+        cur = str(current)
+        is_search = "TripSearch" in cur
+        is_create = "TripCreate" in cur
         if not (is_search or is_create):
             await state.clear()
-            await self._send_clean_message(message, "Главное меню", reply_markup=self._main_keyboard(repo, tg_uid))
+            await self._go_to_main_menu(chat_id=message.chat.id, bot=message.bot, repo=repo, tg_user_id=tg_uid)
             return
 
-        if current.endswith("start_locality"):
+        if cur.endswith("start_locality"):
             await state.clear()
-            await self._send_clean_message(message, "Главное меню", reply_markup=self._main_keyboard(repo, tg_uid))
+            await self._go_to_main_menu(chat_id=message.chat.id, bot=message.bot, repo=repo, tg_user_id=tg_uid)
             return
 
-        if current.endswith("start_district"):
+        cs, cc = self._trip_groups()
+        mode = "search" if is_search else "create"
+        cfg = self._mode_cfg[mode]
+        sg = cs if is_search else cc
+
+        if cur.endswith("start_district"):
             locs = repo.routes.list_localities()
-            if is_search:
-                await state.set_state(self.trip_search_state.start_locality)
-                await self._send_flow_step(
-                    message,
-                    "Откуда едем: выбери населённый пункт или город:",
-                    self._localities_keyboard("Sfl", locs),
-                )
-            else:
-                await state.set_state(self.trip_create_state.start_locality)
-                await self._send_flow_step(
-                    message,
-                    "Старт поездки: выбери населённый пункт или город:",
-                    self._localities_keyboard("Cfl", locs),
-                )
+            await state.set_state(sg.start_locality)
+            await self._update_message_flow(
+                message,
+                mode,
+                cfg["entry_text"],
+                self._localities_keyboard(cfg["start_locality_prefix"], locs),
+            )
             return
 
-        if current.endswith("start_admin_area"):
+        if cur.endswith("start_admin_area"):
             locality = data.get("start_locality")
             if locality:
                 districts = repo.routes.list_districts(str(locality))
-                if is_search:
-                    await state.set_state(self.trip_search_state.start_district)
-                    await self._send_flow_step(
-                        message, f"{locality}: выбери район:", self._districts_keyboard("Sfd", districts)
-                    )
-                else:
-                    await state.set_state(self.trip_create_state.start_district)
-                    await self._send_flow_step(
-                        message, f"{locality}: выбери район:", self._districts_keyboard("Cfd", districts)
-                    )
-                return
+                await state.set_state(sg.start_district)
+                await self._update_message_flow(
+                    message,
+                    mode,
+                    f"{locality}: выбери район:",
+                    self._districts_keyboard(cfg["start_district_prefix"], districts),
+                )
+            return
 
-        if current.endswith("start_stop"):
+        if cur.endswith("start_stop"):
             locality = data.get("start_locality")
             district = data.get("start_district", "")
             if locality is not None:
                 admin_areas = repo.routes.list_admin_areas(str(locality), str(district))
-                if is_search:
-                    await state.set_state(self.trip_search_state.start_admin_area)
-                    await self._send_flow_step(
-                        message,
-                        "Выбери административный район:",
-                        self._districts_keyboard("Sfa", admin_areas),
-                    )
-                else:
-                    await state.set_state(self.trip_create_state.start_admin_area)
-                    await self._send_flow_step(
-                        message,
-                        "Выбери административный район:",
-                        self._districts_keyboard("Cfa", admin_areas),
-                    )
-                return
+                await state.set_state(sg.start_admin_area)
+                await self._update_message_flow(
+                    message,
+                    mode,
+                    "Выбери административный район:",
+                    self._districts_keyboard(cfg["start_admin_prefix"], admin_areas),
+                )
+            return
 
-        if current.endswith("end_locality"):
+        if cur.endswith("end_locality"):
             locality = data.get("start_locality")
             district = data.get("start_district", "")
             admin_area = data.get("start_admin_area", "")
             if locality is not None:
                 stops = repo.routes.list_stops(str(locality), str(district), str(admin_area))
-                if is_search:
-                    await state.set_state(self.trip_search_state.start_stop)
-                    await self._send_flow_step(message, "Выбери остановку посадки:", self._stops_keyboard(stops, "Sfp"))
-                else:
-                    await state.set_state(self.trip_create_state.start_stop)
-                    await self._send_flow_step(message, "Выбери остановку посадки:", self._stops_keyboard(stops, "Cfp"))
+                await state.set_state(sg.start_stop)
+                await self._update_message_flow(
+                    message,
+                    mode,
+                    "Выбери остановку посадки:",
+                    self._stops_keyboard(stops, cfg["start_stop_prefix"]),
+                )
             return
 
-        if current.endswith("end_district"):
+        if cur.endswith("end_district"):
             locs = repo.routes.list_localities()
-            if is_search:
-                await state.set_state(self.trip_search_state.end_locality)
-                await self._send_flow_step(
-                    message,
-                    "Куда едем: выбери населённый пункт или город:",
-                    self._localities_keyboard("Stl", locs),
-                )
-            else:
-                await state.set_state(self.trip_create_state.end_locality)
-                await self._send_flow_step(
-                    message,
-                    "Финиш поездки: выбери населённый пункт или город:",
-                    self._localities_keyboard("Ctl", locs),
-                )
-                return
+            await state.set_state(sg.end_locality)
+            await self._update_message_flow(
+                message,
+                mode,
+                cfg["end_entry_text"],
+                self._localities_keyboard(cfg["end_locality_prefix"], locs),
+            )
+            return
 
-        if current.endswith("end_admin_area"):
+        if cur.endswith("end_admin_area"):
             locality = data.get("end_locality")
             if locality:
                 districts = repo.routes.list_districts(str(locality))
-                if is_search:
-                    await state.set_state(self.trip_search_state.end_district)
-                    await self._send_flow_step(
-                        message,
-                        f"{locality}: выбери район (конечная):",
-                        self._districts_keyboard("Std", districts),
-                    )
-                else:
-                    await state.set_state(self.trip_create_state.end_district)
-                    await self._send_flow_step(
-                        message,
-                        f"{locality}: выбери район (конечная):",
-                        self._districts_keyboard("Ctd", districts),
-                    )
-                return
+                await state.set_state(sg.end_district)
+                await self._update_message_flow(
+                    message,
+                    mode,
+                    f"{locality}: выбери район (конечная):",
+                    self._districts_keyboard(cfg["end_district_prefix"], districts),
+                )
+            return
 
-        if current.endswith("end_stop"):
+        if cur.endswith("end_stop"):
             locality = data.get("end_locality")
             district = data.get("end_district", "")
             if locality is not None:
                 admin_areas = repo.routes.list_admin_areas(str(locality), str(district))
-                if is_search:
-                    await state.set_state(self.trip_search_state.end_admin_area)
-                    await self._send_flow_step(
-                        message,
-                        "Выбери административный район (конечная):",
-                        self._districts_keyboard("Sta", admin_areas),
-                    )
-                else:
-                    await state.set_state(self.trip_create_state.end_admin_area)
-                    await self._send_flow_step(
-                        message,
-                        "Выбери административный район (конечная):",
-                        self._districts_keyboard("Cta", admin_areas),
-                    )
-                return
+                await state.set_state(sg.end_admin_area)
+                await self._update_message_flow(
+                    message,
+                    mode,
+                    "Выбери административный район (конечная):",
+                    self._districts_keyboard(cfg["end_admin_prefix"], admin_areas),
+                )
+            return
 
-        if current.endswith("trip_date"):
+        if cur.endswith("trip_date"):
             locality = data.get("end_locality")
             district = data.get("end_district", "")
             admin_area = data.get("end_admin_area", "")
             if locality is not None:
                 stops = repo.routes.list_stops(str(locality), str(district), str(admin_area))
-                if is_search:
-                    await state.set_state(self.trip_search_state.end_stop)
-                    await self._send_flow_step(message, "Выбери остановку высадки:", self._stops_keyboard(stops, "Stp"))
-                else:
-                    await state.set_state(self.trip_create_state.end_stop)
-                    await self._send_flow_step(message, "Выбери остановку высадки:", self._stops_keyboard(stops, "Ctp"))
+                await state.set_state(sg.end_stop)
+                await self._update_message_flow(
+                    message,
+                    mode,
+                    "Выбери остановку высадки:",
+                    self._stops_keyboard(stops, cfg["end_stop_prefix"]),
+                )
             return
 
-        if current.endswith("departure_time"):
-            await state.set_state(self.trip_create_state.trip_date)
+        if cur.endswith("departure_time"):
+            await state.set_state(cc.trip_date)
             await state.update_data(calendar_target="create")
-            await self._send_flow_step(
-                message, "Выбери дату поездки (календарь):", await self._trip_calendar_factory().start_calendar()
+            await self._update_message_flow(
+                message,
+                "create",
+                "Выбери дату поездки (календарь):",
+                await self._trip_calendar_factory().start_calendar(),
             )
             return
 
-        if current.endswith("seats"):
-            await state.set_state(self.trip_create_state.departure_time)
-            await self._send_flow_step(message, "Выбери время отправления:", self._time_keyboard("create_time"))
+        if cur.endswith("seats"):
+            await state.set_state(cc.departure_time)
+            await self._update_message_flow(
+                message,
+                "create",
+                "Выбери время отправления:",
+                self._time_keyboard("create_time"),
+            )
             return
 
-        if current.endswith("price"):
-            await state.set_state(self.trip_create_state.seats)
-            await self._send_flow_step(message, "Выбери количество пассажиров:", self._seats_keyboard())
+        if cur.endswith("price"):
+            await state.set_state(cc.seats)
+            await self._update_message_flow(
+                message,
+                "create",
+                "Выбери количество пассажиров:",
+                self._seats_keyboard(),
+            )
             return
 
         await state.clear()
-        await self._send_clean_message(message, "Главное меню", reply_markup=self._main_keyboard(repo, tg_uid))
+        await self._go_to_main_menu(chat_id=message.chat.id, bot=message.bot, repo=repo, tg_user_id=tg_uid)

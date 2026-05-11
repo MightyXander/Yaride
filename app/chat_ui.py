@@ -1,18 +1,43 @@
+"""Anchor-based chat UI service (этап 4).
+
+Модель:
+- На chat хранится один anchor — inline-сообщение, которое держит текущий шаг flow.
+- Рядом с anchor может жить опциональное reply-aux сообщение, несущее reply-клавиатуру (например, «⬅ Назад»).
+- Переход между шагами — `edit_message_text` anchor'а (никаких массовых `delete_message`).
+- Переход в главное меню — `close_flow` + отдельное «пост-flow» сообщение с reply-клавиатурой меню.
+- Пользовательские сообщения удаляются точечно через `delete_user_message`.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import Any
 
-from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message, ReplyKeyboardMarkup
+from aiogram import Bot
+from aiogram.exceptions import TelegramBadRequest
+from aiogram.types import InlineKeyboardMarkup, Message, ReplyKeyboardMarkup
 
 from app.db import Database
 
-# Невидимый символ: пока удалена вся история, одно сообщение остаётся — иначе в клиенте Telegram
-# (особенно на телефоне) показывается экран «Запустить бота» вместо диалога.
-_EMPTY_CHAT_BRIDGE = "\u2060"
+
+class _Unset:
+    """Sentinel: «параметр не передан» (отличается от явного None)."""
+
+    __slots__ = ()
+
+
+UNSET: Any = _Unset()
+
+NOTICE_FLOW_KIND = "_notice"
+"""Системный flow_kind для одиночных «notice»-сообщений (главное меню, итоги действия).
+
+Гарантируется, что в чате одновременно живёт максимум один notice: следующий `open_flow`
+с любым обычным `flow_kind` удалит его, как любую смену flow.
+"""
 
 
 class ChatUiService:
-    """Service responsible for clean chat rendering and message history."""
+    """Anchor-based chat UI."""
 
     def __init__(
         self,
@@ -20,124 +45,313 @@ class ChatUiService:
         flow_keyboard_provider: Callable[[], ReplyKeyboardMarkup],
         *,
         database: Database | None = None,
-        history_limit: int = 12,
     ) -> None:
         self._main_keyboard_provider = main_keyboard_provider
         self._flow_keyboard_provider = flow_keyboard_provider
-        self._history_limit = history_limit
-        self._chat_history: dict[int, list[int]] = {}
         self._db = database
+        self._anchor_memory: dict[int, dict[str, Any]] = {}
 
-    def _prune_db_chat(self, conn, chat_id: int) -> None:
-        rows = conn.execute(
-            "SELECT id FROM bot_chat_messages WHERE chat_id = ? ORDER BY id DESC",
-            (chat_id,),
-        ).fetchall()
-        if len(rows) <= self._history_limit:
+    # ── reply-клавиатура по умолчанию (одно сервисное сообщение на flow) ────
+
+    def flow_keyboard(self) -> ReplyKeyboardMarkup:
+        return self._flow_keyboard_provider()
+
+    def main_keyboard(self, tg_user_id: int) -> ReplyKeyboardMarkup:
+        return self._main_keyboard_provider(tg_user_id)
+
+    # ── низкоуровневое хранилище anchor'ов ──────────────────────────────────
+
+    def _load_anchor(self, chat_id: int) -> dict[str, Any] | None:
+        if self._db is None:
+            row = self._anchor_memory.get(chat_id)
+            return dict(row) if row else None
+        with self._db.transaction() as conn:
+            row = conn.execute(
+                """
+                SELECT anchor_message_id, flow_kind, reply_aux_message_id
+                FROM chat_anchors WHERE chat_id = ?
+                """,
+                (chat_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return {
+            "anchor_message_id": int(row["anchor_message_id"]),
+            "flow_kind": str(row["flow_kind"]),
+            "reply_aux_message_id": int(row["reply_aux_message_id"])
+            if row["reply_aux_message_id"] is not None
+            else None,
+        }
+
+    def _save_anchor(
+        self,
+        chat_id: int,
+        *,
+        anchor_message_id: int,
+        flow_kind: str,
+        reply_aux_message_id: int | None,
+    ) -> None:
+        if self._db is None:
+            self._anchor_memory[chat_id] = {
+                "anchor_message_id": anchor_message_id,
+                "flow_kind": flow_kind,
+                "reply_aux_message_id": reply_aux_message_id,
+            }
             return
-        for r in rows[self._history_limit :]:
-            conn.execute("DELETE FROM bot_chat_messages WHERE id = ?", (int(r["id"]),))
+        with self._db.transaction() as conn:
+            conn.execute(
+                """
+                INSERT INTO chat_anchors(chat_id, anchor_message_id, flow_kind, reply_aux_message_id, updated_at)
+                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(chat_id) DO UPDATE SET
+                    anchor_message_id = excluded.anchor_message_id,
+                    flow_kind = excluded.flow_kind,
+                    reply_aux_message_id = excluded.reply_aux_message_id,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (chat_id, anchor_message_id, flow_kind, reply_aux_message_id),
+            )
 
-    async def track_bot_message(self, message: Message) -> None:
-        chat_id = message.chat.id
-        mid = message.message_id
-        if self._db:
-            with self._db.transaction() as conn:
-                conn.execute(
-                    "INSERT INTO bot_chat_messages(chat_id, message_id) VALUES (?, ?)",
-                    (chat_id, mid),
-                )
-                self._prune_db_chat(conn, chat_id)
-        else:
-            ids = self._chat_history.get(chat_id, [])
-            ids.append(mid)
-            self._chat_history[chat_id] = ids[-self._history_limit :]
+    def _delete_anchor(self, chat_id: int) -> None:
+        if self._db is None:
+            self._anchor_memory.pop(chat_id, None)
+            return
+        with self._db.transaction() as conn:
+            conn.execute("DELETE FROM chat_anchors WHERE chat_id = ?", (chat_id,))
 
-    async def cleanup_chat(self, message: Message) -> int | None:
-        bridge_id: int | None = None
+    # ── reply-aux helpers ───────────────────────────────────────────────────
+
+    @staticmethod
+    async def _safe_delete(bot: Bot, chat_id: int, message_id: int | None) -> None:
+        if message_id is None:
+            return
         try:
-            bridge = await message.answer(_EMPTY_CHAT_BRIDGE, disable_notification=True)
-            bridge_id = bridge.message_id
+            await bot.delete_message(chat_id, message_id)
         except Exception:
-            bridge_id = None
+            pass
 
-        chat_id = message.chat.id
-        ids: list[int] = []
-        if self._db:
-            with self._db.transaction() as conn:
-                rows = conn.execute(
-                    "SELECT message_id FROM bot_chat_messages WHERE chat_id = ? ORDER BY id",
-                    (chat_id,),
-                ).fetchall()
-                ids = [int(r["message_id"]) for r in rows]
-                conn.execute("DELETE FROM bot_chat_messages WHERE chat_id = ?", (chat_id,))
-        else:
-            ids = list(self._chat_history.get(chat_id, []))
-            self._chat_history[chat_id] = []
+    async def _apply_reply_aux(
+        self,
+        *,
+        chat_id: int,
+        bot: Bot,
+        reply_keyboard: ReplyKeyboardMarkup | None,
+        reply_hint: str,
+        prev_aux_id: int | None,
+    ) -> int | None:
+        """Перерисовать reply-aux согласно reply_keyboard. None убирает сообщение, иначе посылает заново."""
+        if reply_keyboard is None:
+            await self._safe_delete(bot, chat_id, prev_aux_id)
+            return None
+        await self._safe_delete(bot, chat_id, prev_aux_id)
+        sent = await bot.send_message(chat_id=chat_id, text=reply_hint, reply_markup=reply_keyboard)
+        return int(sent.message_id)
 
-        for message_id in ids:
+    # ── flow API ────────────────────────────────────────────────────────────
+
+    async def open_flow(
+        self,
+        *,
+        chat_id: int,
+        bot: Bot,
+        flow_kind: str,
+        text: str,
+        inline_markup: InlineKeyboardMarkup | None = None,
+        reply_keyboard: ReplyKeyboardMarkup | None = None,
+        reply_hint: str = "Кнопки навигации ниже:",
+    ) -> int:
+        """Открыть anchor нового шага flow.
+
+        - нет anchor → отправить новое сообщение;
+        - тот же flow_kind → edit_message_text (fallback на send при TelegramBadRequest);
+        - другой flow_kind → удалить предыдущий anchor + reply-aux, отправить новое.
+
+        `reply_keyboard`:
+        - None — reply-aux нет/удаляется (по умолчанию);
+        - markup — отправить служебное reply-сообщение с этой клавиатурой.
+        """
+        prev = self._load_anchor(chat_id)
+
+        if prev is None:
+            sent = await bot.send_message(chat_id=chat_id, text=text, reply_markup=inline_markup)
+            aux_id = await self._apply_reply_aux(
+                chat_id=chat_id, bot=bot, reply_keyboard=reply_keyboard, reply_hint=reply_hint, prev_aux_id=None
+            )
+            self._save_anchor(
+                chat_id,
+                anchor_message_id=int(sent.message_id),
+                flow_kind=flow_kind,
+                reply_aux_message_id=aux_id,
+            )
+            return int(sent.message_id)
+
+        prev_anchor = int(prev["anchor_message_id"])
+        prev_kind = str(prev["flow_kind"])
+        prev_aux = prev["reply_aux_message_id"]
+
+        if prev_kind == flow_kind:
             try:
-                await message.bot.delete_message(chat_id, message_id)
-            except Exception:
-                continue
+                await bot.edit_message_text(
+                    chat_id=chat_id, message_id=prev_anchor, text=text, reply_markup=inline_markup
+                )
+                aux_id = await self._apply_reply_aux(
+                    chat_id=chat_id, bot=bot, reply_keyboard=reply_keyboard, reply_hint=reply_hint, prev_aux_id=prev_aux
+                )
+                self._save_anchor(
+                    chat_id,
+                    anchor_message_id=prev_anchor,
+                    flow_kind=flow_kind,
+                    reply_aux_message_id=aux_id,
+                )
+                return prev_anchor
+            except TelegramBadRequest:
+                await self._safe_delete(bot, chat_id, prev_aux)
+                self._delete_anchor(chat_id)
+                sent = await bot.send_message(chat_id=chat_id, text=text, reply_markup=inline_markup)
+                aux_id = await self._apply_reply_aux(
+                    chat_id=chat_id, bot=bot, reply_keyboard=reply_keyboard, reply_hint=reply_hint, prev_aux_id=None
+                )
+                self._save_anchor(
+                    chat_id,
+                    anchor_message_id=int(sent.message_id),
+                    flow_kind=flow_kind,
+                    reply_aux_message_id=aux_id,
+                )
+                return int(sent.message_id)
 
+        await self._safe_delete(bot, chat_id, prev_anchor)
+        await self._safe_delete(bot, chat_id, prev_aux)
+        self._delete_anchor(chat_id)
+        sent = await bot.send_message(chat_id=chat_id, text=text, reply_markup=inline_markup)
+        aux_id = await self._apply_reply_aux(
+            chat_id=chat_id, bot=bot, reply_keyboard=reply_keyboard, reply_hint=reply_hint, prev_aux_id=None
+        )
+        self._save_anchor(
+            chat_id,
+            anchor_message_id=int(sent.message_id),
+            flow_kind=flow_kind,
+            reply_aux_message_id=aux_id,
+        )
+        return int(sent.message_id)
+
+    async def update_flow(
+        self,
+        *,
+        chat_id: int,
+        bot: Bot,
+        flow_kind: str,
+        text: str,
+        inline_markup: InlineKeyboardMarkup | None = None,
+        reply_keyboard: Any = UNSET,
+        reply_hint: str = "Кнопки навигации ниже:",
+    ) -> int:
+        """Обновить anchor через edit_message_text.
+
+        - нет anchor → fallback к send_message;
+        - есть anchor → edit; при TelegramBadRequest — fallback к send_message;
+        - `reply_keyboard=UNSET` — текущее reply-aux не трогать;
+        - `reply_keyboard=None` — удалить reply-aux;
+        - `reply_keyboard=markup` — переустановить reply-aux.
+        """
+        prev = self._load_anchor(chat_id)
+
+        if prev is None:
+            sent = await bot.send_message(chat_id=chat_id, text=text, reply_markup=inline_markup)
+            aux_kw = None if reply_keyboard is UNSET else reply_keyboard
+            aux_id = await self._apply_reply_aux(
+                chat_id=chat_id, bot=bot, reply_keyboard=aux_kw, reply_hint=reply_hint, prev_aux_id=None
+            )
+            self._save_anchor(
+                chat_id,
+                anchor_message_id=int(sent.message_id),
+                flow_kind=flow_kind,
+                reply_aux_message_id=aux_id,
+            )
+            return int(sent.message_id)
+
+        prev_anchor = int(prev["anchor_message_id"])
+        prev_aux = prev["reply_aux_message_id"]
+        try:
+            await bot.edit_message_text(chat_id=chat_id, message_id=prev_anchor, text=text, reply_markup=inline_markup)
+            if reply_keyboard is UNSET:
+                aux_id = prev_aux
+            else:
+                aux_id = await self._apply_reply_aux(
+                    chat_id=chat_id,
+                    bot=bot,
+                    reply_keyboard=reply_keyboard,
+                    reply_hint=reply_hint,
+                    prev_aux_id=prev_aux,
+                )
+            self._save_anchor(
+                chat_id,
+                anchor_message_id=prev_anchor,
+                flow_kind=flow_kind,
+                reply_aux_message_id=aux_id,
+            )
+            return prev_anchor
+        except TelegramBadRequest:
+            await self._safe_delete(bot, chat_id, prev_aux)
+            self._delete_anchor(chat_id)
+            sent = await bot.send_message(chat_id=chat_id, text=text, reply_markup=inline_markup)
+            aux_kw = None if reply_keyboard is UNSET else reply_keyboard
+            aux_id = await self._apply_reply_aux(
+                chat_id=chat_id, bot=bot, reply_keyboard=aux_kw, reply_hint=reply_hint, prev_aux_id=None
+            )
+            self._save_anchor(
+                chat_id,
+                anchor_message_id=int(sent.message_id),
+                flow_kind=flow_kind,
+                reply_aux_message_id=aux_id,
+            )
+            return int(sent.message_id)
+
+    async def close_flow(self, *, chat_id: int, bot: Bot, keep_message_id: int | None = None) -> None:
+        """Завершить flow: удалить anchor (если не keep) и reply-aux. Запись стирается."""
+        prev = self._load_anchor(chat_id)
+        if prev is None:
+            return
+        prev_anchor = int(prev["anchor_message_id"])
+        prev_aux = prev["reply_aux_message_id"]
+        if keep_message_id != prev_anchor:
+            await self._safe_delete(bot, chat_id, prev_anchor)
+        await self._safe_delete(bot, chat_id, prev_aux)
+        self._delete_anchor(chat_id)
+
+    # ── вспомогательные операции ───────────────────────────────────────────
+
+    async def replace_with_notice(
+        self,
+        *,
+        chat_id: int,
+        bot: Bot,
+        text: str,
+        inline_markup: InlineKeyboardMarkup | None = None,
+        reply_keyboard: ReplyKeyboardMarkup | None = None,
+        reply_hint: str = "Главное меню:",
+    ) -> int:
+        """Заменить любой текущий anchor + reply-aux на одиночное notice-сообщение.
+
+        Notice — это anchor с системным `flow_kind=NOTICE_FLOW_KIND`. Следующий обычный
+        `open_flow` (любого другого kind) удалит его автоматически — в чате не накапливаются
+        итоговые сообщения вида «Поездка создана», «Регистрация завершена», «Бронь отменена».
+
+        Если предыдущий anchor — тоже notice, текст переедактируется на месте без delete+send.
+        """
+        return await self.open_flow(
+            chat_id=chat_id,
+            bot=bot,
+            flow_kind=NOTICE_FLOW_KIND,
+            text=text,
+            inline_markup=inline_markup,
+            reply_keyboard=reply_keyboard,
+            reply_hint=reply_hint,
+        )
+
+    @staticmethod
+    async def delete_user_message(message: Message) -> None:
+        """Точечное удаление пользовательского сообщения (без массового cleanup)."""
         try:
             await message.delete()
         except Exception:
             pass
-
-        return bridge_id
-
-    async def drop_empty_chat_bridge(self, message: Message | None, bridge_id: int | None) -> None:
-        if message is None or bridge_id is None:
-            return
-        try:
-            await message.bot.delete_message(message.chat.id, bridge_id)
-        except Exception:
-            pass
-
-    async def send_clean_message(self, message: Message, text: str, **kwargs) -> Message:
-        bridge_id = await self.cleanup_chat(message)
-        if "reply_markup" not in kwargs:
-            uid = message.from_user.id if message.from_user else 0
-            kwargs["reply_markup"] = self._main_keyboard_provider(uid)
-        sent = await message.answer(text, **kwargs)
-        await self.track_bot_message(sent)
-        await self.drop_empty_chat_bridge(message, bridge_id)
-        return sent
-
-    async def send_flow_step(self, message: Message, text: str, inline_markup: InlineKeyboardMarkup) -> None:
-        bridge_id = await self.cleanup_chat(message)
-        nav = await message.answer("Навигация: используйте «⬅ Назад».", reply_markup=self._flow_keyboard_provider())
-        await self.track_bot_message(nav)
-        step = await message.answer(text, reply_markup=inline_markup)
-        await self.track_bot_message(step)
-        await self.drop_empty_chat_bridge(message, bridge_id)
-
-    async def edit_or_send_clean(self, callback: CallbackQuery, text: str, **kwargs) -> None:
-        # Reply-клавиатура не поддерживается в editMessageText — только inline.
-        rm = kwargs.get("reply_markup")
-        if isinstance(rm, ReplyKeyboardMarkup):
-            if callback.message:
-                chat_id = callback.message.chat.id
-                bridge_id = await self.cleanup_chat(callback.message)
-                sent = await callback.bot.send_message(chat_id=chat_id, text=text, reply_markup=rm)
-                await self.track_bot_message(sent)
-                await self.drop_empty_chat_bridge(callback.message, bridge_id)
-            return
-
-        # Если явно не передали новую inline-разметку, сохраняем текущую,
-        # чтобы кнопки не пропадали после валидационных ошибок.
-        if "reply_markup" not in kwargs and callback.message and callback.message.reply_markup:
-            kwargs["reply_markup"] = callback.message.reply_markup
-        try:
-            await callback.message.edit_text(text, **kwargs)
-            await self.track_bot_message(callback.message)
-        except Exception:
-            bridge_id = await self.cleanup_chat(callback.message)
-            if "reply_markup" not in kwargs:
-                uid = callback.from_user.id if callback.from_user else 0
-                kwargs["reply_markup"] = self._main_keyboard_provider(uid)
-            sent = await callback.message.answer(text, **kwargs)
-            await self.track_bot_message(sent)
-            await self.drop_empty_chat_bridge(callback.message, bridge_id)

@@ -29,10 +29,12 @@ async def process_calendar_selection(
         STALE_CREATE_FLOW,
         STALE_SEARCH_FLOW,
         add_back_button,
-        edit_or_send_clean,
+        close_flow,
         main_keyboard,
+        send_post_flow_message,
         time_keyboard,
         trips_keyboard,
+        update_flow,
     )
 
     selected, selected_date = await trip_calendar().process_selection(callback, callback_data)
@@ -51,9 +53,14 @@ async def process_calendar_selection(
     if target == "search":
         if "start_point" not in data or "end_point" not in data:
             await state.clear()
-            await edit_or_send_clean(
-                callback, STALE_SEARCH_FLOW, reply_markup=main_keyboard(repo, callback.from_user.id)
-            )
+            if callback.message:
+                await close_flow(chat_id=callback.message.chat.id, bot=callback.bot)
+                await send_post_flow_message(
+                    chat_id=callback.message.chat.id,
+                    bot=callback.bot,
+                    text=STALE_SEARCH_FLOW,
+                    reply_keyboard=main_keyboard(repo, callback.from_user.id),
+                )
             await callback.answer()
             return
         await state.update_data(trip_date=iso_date)
@@ -64,9 +71,14 @@ async def process_calendar_selection(
         )
         await state.clear()
         if not trips:
-            await edit_or_send_clean(
-                callback, "Подходящих поездок пока нет.", reply_markup=main_keyboard(repo, callback.from_user.id)
-            )
+            if callback.message:
+                await close_flow(chat_id=callback.message.chat.id, bot=callback.bot)
+                await send_post_flow_message(
+                    chat_id=callback.message.chat.id,
+                    bot=callback.bot,
+                    text="Подходящих поездок пока нет.",
+                    reply_keyboard=main_keyboard(repo, callback.from_user.id),
+                )
             await callback.answer()
             return
         text_lines = ["Доступные поездки:"]
@@ -77,25 +89,41 @@ async def process_calendar_selection(
                 f"{t['start_title']} -> {t['end_title']} | {format_trip_row(t)} | "
                 f"{t['price_rub']} руб. | свободно {free}/{t['seats_total']}"
             )
-        await edit_or_send_clean(callback, "\n".join(text_lines), reply_markup=trips_keyboard(trips))
+        if callback.message:
+            await update_flow(
+                chat_id=callback.message.chat.id,
+                bot=callback.bot,
+                flow_kind="search",
+                text="\n".join(text_lines),
+                inline_markup=trips_keyboard(trips),
+                reply_keyboard=None,
+            )
         await callback.answer()
         return
 
     if target == "create":
         if "start_point" not in data or "end_point" not in data:
             await state.clear()
-            await edit_or_send_clean(
-                callback, STALE_CREATE_FLOW, reply_markup=main_keyboard(repo, callback.from_user.id)
-            )
+            if callback.message:
+                await close_flow(chat_id=callback.message.chat.id, bot=callback.bot)
+                await send_post_flow_message(
+                    chat_id=callback.message.chat.id,
+                    bot=callback.bot,
+                    text=STALE_CREATE_FLOW,
+                    reply_keyboard=main_keyboard(repo, callback.from_user.id),
+                )
             await callback.answer()
             return
         await state.update_data(trip_date=iso_date)
         await state.set_state(TripCreate.departure_time)
-        await edit_or_send_clean(
-            callback,
-            "Выбери время отправления:",
-            reply_markup=add_back_button(time_keyboard("create_time"), "create_date"),
-        )
+        if callback.message:
+            await update_flow(
+                chat_id=callback.message.chat.id,
+                bot=callback.bot,
+                flow_kind="create",
+                text="Выбери время отправления:",
+                inline_markup=add_back_button(time_keyboard("create_time"), "create_date"),
+            )
         await callback.answer()
         return
 
@@ -103,12 +131,26 @@ async def process_calendar_selection(
         target_role = data.get("target_role")
         if not target_role:
             await state.clear()
-            await edit_or_send_clean(callback, "Сессия смены роли устарела. Нажми «Сменить роль» снова.")
+            if callback.message:
+                await close_flow(chat_id=callback.message.chat.id, bot=callback.bot)
+                await send_post_flow_message(
+                    chat_id=callback.message.chat.id,
+                    bot=callback.bot,
+                    text="Сессия смены роли устарела. Нажми «Сменить роль» снова.",
+                    reply_keyboard=main_keyboard(repo, callback.from_user.id),
+                )
             await callback.answer()
             return
         _, msg = repo.users.switch_role(callback.from_user.id, str(target_role), iso_date)
         await state.clear()
-        await edit_or_send_clean(callback, msg, reply_markup=main_keyboard(repo, callback.from_user.id))
+        if callback.message:
+            await close_flow(chat_id=callback.message.chat.id, bot=callback.bot)
+            await send_post_flow_message(
+                chat_id=callback.message.chat.id,
+                bot=callback.bot,
+                text=msg,
+                reply_keyboard=main_keyboard(repo, callback.from_user.id),
+            )
         await callback.answer()
         return
 

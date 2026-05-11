@@ -8,8 +8,11 @@ from contextlib import contextmanager
 from app.geo_stops import COORDINATE_OVERRIDES, lat_lng_for_stop
 from app.seeds import ROUTE_HIERARCHY
 
-# Текущая версия схемы кода. v2 — этап 1 (WAL); v3 — этап 2 (индексы).
-CURRENT_SCHEMA_VERSION = 3
+# Текущая версия схемы кода.
+# v2 — этап 1 (WAL); v3 — этап 2 (индексы);
+# v4 — этап 4: таблица anchor-сообщений flow;
+# v5 — этап 4: reply_aux_message_id в chat_anchors + drop bot_chat_messages (legacy cleanup_chat).
+CURRENT_SCHEMA_VERSION = 5
 SCHEMA_VERSION = CURRENT_SCHEMA_VERSION
 
 
@@ -113,6 +116,12 @@ class Database:
         if from_v == 2 and to_v == 3:
             self._migrate_v2_to_v3(conn)
             return
+        if from_v == 3 and to_v == 4:
+            self._migrate_v3_to_v4(conn)
+            return
+        if from_v == 4 and to_v == 5:
+            self._migrate_v4_to_v5(conn)
+            return
         raise RuntimeError(f"No migration defined from v{from_v} to v{to_v}")
 
     def _migrate_v1_to_v2(self, conn: sqlite3.Connection) -> None:
@@ -122,6 +131,30 @@ class Database:
     def _migrate_v2_to_v3(self, conn: sqlite3.Connection) -> None:
         """Индексы под типовые запросы поездок, броней и рейтингов (этап 2)."""
         self._ensure_performance_indexes(conn)
+
+    def _migrate_v3_to_v4(self, conn: sqlite3.Connection) -> None:
+        """Этап 4: таблица chat_anchors для anchor-сообщений flow."""
+        self._ensure_chat_anchors_table(conn)
+
+    def _migrate_v4_to_v5(self, conn: sqlite3.Connection) -> None:
+        """Этап 4 (завершение): reply_aux_message_id в chat_anchors + удаление bot_chat_messages."""
+        cols = {row["name"] for row in conn.execute("PRAGMA table_info(chat_anchors)").fetchall()}
+        if "reply_aux_message_id" not in cols:
+            conn.execute("ALTER TABLE chat_anchors ADD COLUMN reply_aux_message_id INTEGER")
+        conn.execute("DROP TABLE IF EXISTS bot_chat_messages")
+
+    def _ensure_chat_anchors_table(self, conn: sqlite3.Connection) -> None:
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS chat_anchors (
+                chat_id INTEGER PRIMARY KEY,
+                anchor_message_id INTEGER NOT NULL,
+                flow_kind TEXT NOT NULL,
+                reply_aux_message_id INTEGER,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            """
+        )
 
     def _ensure_performance_indexes(self, conn: sqlite3.Connection) -> None:
         conn.executescript(
@@ -210,12 +243,12 @@ class Database:
         self._migrate_route_points_schema(conn)
         self._migrate_route_points_latlng(conn)
         self._migrate_favorites_and_ratings(conn)
-        self._migrate_bot_chat_messages(conn)
         self._migrate_trip_ratings_review_text(conn)
         self._seed_route_points(conn)
         self._migrate_route_hierarchy_simplify(conn)
         self._fill_route_point_coordinates(conn)
         self._ensure_performance_indexes(conn)
+        self._ensure_chat_anchors_table(conn)
 
     def _migrate_schema(self, conn: sqlite3.Connection) -> None:
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(trips)").fetchall()}
@@ -322,18 +355,6 @@ class Database:
                 FOREIGN KEY(rater_user_id) REFERENCES users(id),
                 FOREIGN KEY(rated_user_id) REFERENCES users(id)
             );
-            """
-        )
-
-    def _migrate_bot_chat_messages(self, conn: sqlite3.Connection) -> None:
-        conn.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS bot_chat_messages (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                chat_id INTEGER NOT NULL,
-                message_id INTEGER NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_bot_chat_messages_chat ON bot_chat_messages(chat_id);
             """
         )
 

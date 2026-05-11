@@ -12,6 +12,8 @@ from app.states import TripCreate
 
 router = Router()
 
+FLOW_KIND = "create"
+
 
 @router.message(StateFilter(TripCreate.start_locality), F.location)
 async def create_start_locality_geo(message: Message, state: FSMContext, repo: Repo) -> None:
@@ -22,14 +24,33 @@ async def create_start_locality_geo(message: Message, state: FSMContext, repo: R
 
 @router.message(F.text == "Создать поездку")
 async def create_trip_start(message: Message, state: FSMContext, repo: Repo) -> None:
-    from app.bot_support import FLOW_ORCHESTRATOR, send_clean_message
+    from app.bot_support import (
+        FLOW_ORCHESTRATOR,
+        close_flow,
+        delete_user_message,
+        main_keyboard,
+        send_post_flow_message,
+    )
 
     user = repo.users.get_user(message.from_user.id)
+    await delete_user_message(message)
     if not user:
-        await send_clean_message(message, "Сначала зарегистрируйся через /start.")
+        await close_flow(chat_id=message.chat.id, bot=message.bot)
+        await send_post_flow_message(
+            chat_id=message.chat.id,
+            bot=message.bot,
+            text="Сначала зарегистрируйся через /start.",
+            reply_keyboard=main_keyboard(repo, message.from_user.id),
+        )
         return
     if user["role"] != "driver":
-        await send_clean_message(message, "Создавать поездки может только водитель.")
+        await close_flow(chat_id=message.chat.id, bot=message.bot)
+        await send_post_flow_message(
+            chat_id=message.chat.id,
+            bot=message.bot,
+            text="Создавать поездки может только водитель.",
+            reply_keyboard=main_keyboard(repo, message.from_user.id),
+        )
         return
     await FLOW_ORCHESTRATOR.begin(message, state, repo, mode="create")
 
@@ -95,25 +116,37 @@ async def create_set_time(callback: CallbackQuery, state: FSMContext, repo: Repo
     from app.bot_support import (
         STALE_CREATE_FLOW,
         add_back_button,
-        edit_or_send_clean,
+        close_flow,
         main_keyboard,
         seats_keyboard,
+        send_post_flow_message,
+        update_flow,
     )
 
     data = await state.get_data()
     if "trip_date" not in data:
-        await edit_or_send_clean(callback, STALE_CREATE_FLOW, reply_markup=main_keyboard(repo, callback.from_user.id))
+        if callback.message:
+            await close_flow(chat_id=callback.message.chat.id, bot=callback.bot)
+            await send_post_flow_message(
+                chat_id=callback.message.chat.id,
+                bot=callback.bot,
+                text=STALE_CREATE_FLOW,
+                reply_keyboard=main_keyboard(repo, callback.from_user.id),
+            )
         await state.clear()
         await callback.answer()
         return
     departure_time = callback.data.split(":", 1)[1]
     await state.update_data(departure_time=departure_time)
     await state.set_state(TripCreate.seats)
-    await edit_or_send_clean(
-        callback,
-        "Выбери количество пассажиров:",
-        reply_markup=add_back_button(seats_keyboard(), "create_time"),
-    )
+    if callback.message:
+        await update_flow(
+            chat_id=callback.message.chat.id,
+            bot=callback.bot,
+            flow_kind=FLOW_KIND,
+            text="Выбери количество пассажиров:",
+            inline_markup=add_back_button(seats_keyboard(), "create_time"),
+        )
     await callback.answer()
 
 
@@ -123,15 +156,24 @@ async def create_set_seats(callback: CallbackQuery, state: FSMContext, repo: Rep
         STALE_CREATE_FLOW,
         _active_settings,
         add_back_button,
-        edit_or_send_clean,
+        close_flow,
         main_keyboard,
         price_keyboard,
         seats_keyboard,
+        send_post_flow_message,
+        update_flow,
     )
 
     data = await state.get_data()
     if "trip_date" not in data or "departure_time" not in data:
-        await edit_or_send_clean(callback, STALE_CREATE_FLOW, reply_markup=main_keyboard(repo, callback.from_user.id))
+        if callback.message:
+            await close_flow(chat_id=callback.message.chat.id, bot=callback.bot)
+            await send_post_flow_message(
+                chat_id=callback.message.chat.id,
+                bot=callback.bot,
+                text=STALE_CREATE_FLOW,
+                reply_keyboard=main_keyboard(repo, callback.from_user.id),
+            )
         await state.clear()
         await callback.answer()
         return
@@ -143,18 +185,26 @@ async def create_set_seats(callback: CallbackQuery, state: FSMContext, repo: Rep
     cfg = _active_settings()
     if seats not in cfg.seats_choices:
         allowed_seats = ", ".join(str(s) for s in cfg.seats_choices)
-        await edit_or_send_clean(
-            callback,
-            f"Допустимо только: {allowed_seats}.",
-            reply_markup=add_back_button(seats_keyboard(), "create_time"),
-        )
+        if callback.message:
+            await update_flow(
+                chat_id=callback.message.chat.id,
+                bot=callback.bot,
+                flow_kind=FLOW_KIND,
+                text=f"Допустимо только: {allowed_seats}.",
+                inline_markup=add_back_button(seats_keyboard(), "create_time"),
+            )
         await callback.answer()
         return
     await state.update_data(seats=seats)
     await state.set_state(TripCreate.price)
-    await edit_or_send_clean(
-        callback, "Выбери цену поездки:", reply_markup=add_back_button(price_keyboard(), "create_seats")
-    )
+    if callback.message:
+        await update_flow(
+            chat_id=callback.message.chat.id,
+            bot=callback.bot,
+            flow_kind=FLOW_KIND,
+            text="Выбери цену поездки:",
+            inline_markup=add_back_button(price_keyboard(), "create_seats"),
+        )
     await callback.answer()
 
 
@@ -164,9 +214,11 @@ async def create_set_price(callback: CallbackQuery, state: FSMContext, repo: Rep
         STALE_CREATE_FLOW,
         _active_settings,
         add_back_button,
-        edit_or_send_clean,
+        close_flow,
         main_keyboard,
         price_keyboard,
+        send_post_flow_message,
+        update_flow,
     )
 
     try:
@@ -177,17 +229,27 @@ async def create_set_price(callback: CallbackQuery, state: FSMContext, repo: Rep
     cfg = _active_settings()
     if price not in cfg.price_choices:
         allowed_prices = ", ".join(str(p) for p in cfg.price_choices)
-        await edit_or_send_clean(
-            callback,
-            f"Доступные цены: {allowed_prices}.",
-            reply_markup=add_back_button(price_keyboard(), "create_seats"),
-        )
+        if callback.message:
+            await update_flow(
+                chat_id=callback.message.chat.id,
+                bot=callback.bot,
+                flow_kind=FLOW_KIND,
+                text=f"Доступные цены: {allowed_prices}.",
+                inline_markup=add_back_button(price_keyboard(), "create_seats"),
+            )
         await callback.answer()
         return
     data = await state.get_data()
     required_keys = ("start_point", "end_point", "trip_date", "departure_time", "seats")
     if any(k not in data or data[k] is None for k in required_keys):
-        await edit_or_send_clean(callback, STALE_CREATE_FLOW, reply_markup=main_keyboard(repo, callback.from_user.id))
+        if callback.message:
+            await close_flow(chat_id=callback.message.chat.id, bot=callback.bot)
+            await send_post_flow_message(
+                chat_id=callback.message.chat.id,
+                bot=callback.bot,
+                text=STALE_CREATE_FLOW,
+                reply_keyboard=main_keyboard(repo, callback.from_user.id),
+            )
         await state.clear()
         await callback.answer()
         return
@@ -202,15 +264,25 @@ async def create_set_price(callback: CallbackQuery, state: FSMContext, repo: Rep
             price_rub=price,
         )
     except ValueError as exc:
-        await edit_or_send_clean(callback, str(exc), reply_markup=main_keyboard(repo, callback.from_user.id))
+        if callback.message:
+            await close_flow(chat_id=callback.message.chat.id, bot=callback.bot)
+            await send_post_flow_message(
+                chat_id=callback.message.chat.id,
+                bot=callback.bot,
+                text=str(exc),
+                reply_keyboard=main_keyboard(repo, callback.from_user.id),
+            )
         await state.clear()
         await callback.answer()
         return
 
     await state.clear()
-    await edit_or_send_clean(
-        callback,
-        f"Поездка #{trip_id} создана и доступна для поиска.",
-        reply_markup=main_keyboard(repo, callback.from_user.id),
-    )
+    if callback.message:
+        await close_flow(chat_id=callback.message.chat.id, bot=callback.bot)
+        await send_post_flow_message(
+            chat_id=callback.message.chat.id,
+            bot=callback.bot,
+            text=f"Поездка #{trip_id} создана и доступна для поиска.",
+            reply_keyboard=main_keyboard(repo, callback.from_user.id),
+        )
     await callback.answer()

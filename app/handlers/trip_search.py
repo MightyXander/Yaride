@@ -15,11 +15,24 @@ router = Router()
 
 @router.message(F.text.in_(["Найти поездки"]))
 async def find_trips_start(message: Message, state: FSMContext, repo: Repo) -> None:
-    from app.bot_support import FLOW_ORCHESTRATOR, send_clean_message
+    from app.bot_support import (
+        FLOW_ORCHESTRATOR,
+        close_flow,
+        delete_user_message,
+        main_keyboard,
+        send_post_flow_message,
+    )
 
     user = repo.users.get_user(message.from_user.id)
+    await delete_user_message(message)
     if not user:
-        await send_clean_message(message, "Сначала зарегистрируйся через /start.")
+        await close_flow(chat_id=message.chat.id, bot=message.bot)
+        await send_post_flow_message(
+            chat_id=message.chat.id,
+            bot=message.bot,
+            text="Сначала зарегистрируйся через /start.",
+            reply_keyboard=main_keyboard(repo, message.from_user.id),
+        )
         return
     await FLOW_ORCHESTRATOR.begin(message, state, repo, mode="search")
 

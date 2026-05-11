@@ -4,8 +4,6 @@ from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase
 from unittest.mock import AsyncMock, call
 
-from aiogram.types import ReplyKeyboardRemove
-
 from app.trip_flow import TripFlowOrchestrator
 
 
@@ -45,6 +43,8 @@ class _FakeCallback:
 class _FakeMessage:
     def __init__(self) -> None:
         self.answer = AsyncMock()
+        self.chat = SimpleNamespace(id=555)
+        self.bot = SimpleNamespace()
 
 
 class _FakeRepo:
@@ -80,101 +80,113 @@ class _FakeRepo:
         return None
 
 
+def _build_mode_cfg() -> dict[str, dict[str, object]]:
+    return {
+        "search": {
+            "state_group": SimpleNamespace(
+                start_locality="search_start_locality",
+                start_district="search_start_district",
+                start_admin_area="search_start_admin_area",
+                start_stop="search_start_stop",
+                end_locality="search_end_locality",
+                end_district="search_end_district",
+                end_admin_area="search_end_admin_area",
+                end_stop="search_end_stop",
+                trip_date="search_trip_date",
+            ),
+            "start_locality_prefix": "Sfl",
+            "start_district_prefix": "Sfd",
+            "start_admin_prefix": "Sfa",
+            "start_stop_prefix": "Sfp",
+            "end_locality_prefix": "Stl",
+            "end_district_prefix": "Std",
+            "end_admin_prefix": "Sta",
+            "end_stop_prefix": "Stp",
+            "start_locality_back": "search_start_locality",
+            "start_district_back": "search_start_district",
+            "start_admin_back": "search_start_admin",
+            "start_stop_back": "search_start_stop",
+            "end_locality_back": "search_end_locality",
+            "end_district_back": "search_end_district",
+            "end_admin_back": "search_end_admin",
+            "end_stop_back": "search_end_stop",
+            "entry_text": "ENTRY_SEARCH",
+            "end_entry_text": "END_ENTRY_SEARCH",
+        },
+        "create": {
+            "state_group": SimpleNamespace(
+                start_locality="create_start_locality",
+                start_district="create_start_district",
+                start_admin_area="create_start_admin_area",
+                start_stop="create_start_stop",
+                end_locality="create_end_locality",
+                end_district="create_end_district",
+                end_admin_area="create_end_admin_area",
+                end_stop="create_end_stop",
+                trip_date="create_trip_date",
+            ),
+            "start_locality_prefix": "Cfl",
+            "start_district_prefix": "Cfd",
+            "start_admin_prefix": "Cfa",
+            "start_stop_prefix": "Cfp",
+            "end_locality_prefix": "Ctl",
+            "end_district_prefix": "Ctd",
+            "end_admin_prefix": "Cta",
+            "end_stop_prefix": "Ctp",
+            "start_locality_back": "create_start_locality",
+            "start_district_back": "create_start_district",
+            "start_admin_back": "create_start_admin",
+            "start_stop_back": "create_start_stop",
+            "end_locality_back": "create_end_locality",
+            "end_district_back": "create_end_district",
+            "end_admin_back": "create_end_admin",
+            "end_stop_back": "create_end_stop",
+            "entry_text": "ENTRY_CREATE",
+            "end_entry_text": "END_ENTRY_CREATE",
+        },
+    }
+
+
+class _FakeChatUi:
+    def __init__(self) -> None:
+        self.open_flow = AsyncMock(return_value=42)
+        self.update_flow = AsyncMock(return_value=42)
+        self.close_flow = AsyncMock(return_value=None)
+
+
 class TripFlowOrchestratorTests(IsolatedAsyncioTestCase):
-    def _build_orchestrator(self, *, reply_stop_step_message=None):
-        send_flow_step = AsyncMock()
-        edit_or_send_clean = AsyncMock()
-        mode_cfg = {
-            "search": {
-                "state_group": SimpleNamespace(
-                    start_locality="search_start_locality",
-                    start_district="search_start_district",
-                    start_admin_area="search_start_admin_area",
-                    start_stop="search_start_stop",
-                    end_locality="search_end_locality",
-                    end_district="search_end_district",
-                    end_admin_area="search_end_admin_area",
-                    end_stop="search_end_stop",
-                    trip_date="search_trip_date",
-                ),
-                "start_locality_prefix": "Sfl",
-                "start_district_prefix": "Sfd",
-                "start_admin_prefix": "Sfa",
-                "start_stop_prefix": "Sfp",
-                "end_locality_prefix": "Stl",
-                "end_district_prefix": "Std",
-                "end_admin_prefix": "Sta",
-                "end_stop_prefix": "Stp",
-                "start_locality_back": "search_start_locality",
-                "start_district_back": "search_start_district",
-                "start_admin_back": "search_start_admin",
-                "start_stop_back": "search_start_stop",
-                "end_locality_back": "search_end_locality",
-                "end_district_back": "search_end_district",
-                "end_admin_back": "search_end_admin",
-                "end_stop_back": "search_end_stop",
-                "entry_text": "ENTRY_SEARCH",
-                "end_entry_text": "END_ENTRY_SEARCH",
-            },
-            "create": {
-                "state_group": SimpleNamespace(
-                    start_locality="create_start_locality",
-                    start_district="create_start_district",
-                    start_admin_area="create_start_admin_area",
-                    start_stop="create_start_stop",
-                    end_locality="create_end_locality",
-                    end_district="create_end_district",
-                    end_admin_area="create_end_admin_area",
-                    end_stop="create_end_stop",
-                    trip_date="create_trip_date",
-                ),
-                "start_locality_prefix": "Cfl",
-                "start_district_prefix": "Cfd",
-                "start_admin_prefix": "Cfa",
-                "start_stop_prefix": "Cfp",
-                "end_locality_prefix": "Ctl",
-                "end_district_prefix": "Ctd",
-                "end_admin_prefix": "Cta",
-                "end_stop_prefix": "Ctp",
-                "start_locality_back": "create_start_locality",
-                "start_district_back": "create_start_district",
-                "start_admin_back": "create_start_admin",
-                "start_stop_back": "create_start_stop",
-                "end_locality_back": "create_end_locality",
-                "end_district_back": "create_end_district",
-                "end_admin_back": "create_end_admin",
-                "end_stop_back": "create_end_stop",
-                "entry_text": "ENTRY_CREATE",
-                "end_entry_text": "END_ENTRY_CREATE",
-            },
-        }
+    def _build_orchestrator(self):
+        chat_ui = _FakeChatUi()
         orchestrator = TripFlowOrchestrator(
-            mode_cfg=mode_cfg,
-            send_flow_step=send_flow_step,
-            edit_or_send_clean=edit_or_send_clean,
+            mode_cfg=_build_mode_cfg(),
+            chat_ui=chat_ui,
             add_back_button=lambda markup, back: ("BACK", markup, back),
             localities_keyboard=lambda prefix, localities: ("LOC", prefix, tuple(localities)),
             districts_keyboard=lambda prefix, districts: ("DIST", prefix, tuple(districts)),
             stops_keyboard=lambda stops, prefix: ("STOP", prefix, tuple((s["id"], s["title"]) for s in stops)),
+            location_reply_keyboard=lambda: "LOC_REPLY_KB",
             trip_calendar_factory=lambda: _FakeCalendar(),
-            reply_stop_step_message=reply_stop_step_message,
         )
-        return orchestrator, send_flow_step, edit_or_send_clean
+        return orchestrator, chat_ui
 
-    async def test_begin_sets_start_state_and_renders_entry(self) -> None:
-        orchestrator, send_flow_step, _ = self._build_orchestrator()
+    async def test_begin_sets_start_state_and_opens_flow(self) -> None:
+        orchestrator, chat_ui = self._build_orchestrator()
         state = _FakeState()
         repo = _FakeRepo()
+        msg = _FakeMessage()
 
-        await orchestrator.begin(message=object(), state=state, repo=repo, mode="search")
+        await orchestrator.begin(message=msg, state=state, repo=repo, mode="search")
 
         self.assertTrue(state.cleared)
         self.assertEqual(state.last_state, "search_start_locality")
-        send_flow_step.assert_awaited_once()
-        self.assertEqual(send_flow_step.await_args.args[1], "ENTRY_SEARCH")
+        chat_ui.open_flow.assert_awaited_once()
+        kwargs = chat_ui.open_flow.await_args.kwargs
+        self.assertEqual(kwargs["text"], "ENTRY_SEARCH")
+        self.assertEqual(kwargs["flow_kind"], "search")
+        self.assertEqual(kwargs["reply_keyboard"], "LOC_REPLY_KB")
 
     async def test_pick_locality_updates_end_state(self) -> None:
-        orchestrator, _, edit_or_send_clean = self._build_orchestrator()
+        orchestrator, chat_ui = self._build_orchestrator()
         state = _FakeState()
         state.data["start_point"] = 999
         callback = _FakeCallback("Stl:1")
@@ -185,10 +197,11 @@ class TripFlowOrchestratorTests(IsolatedAsyncioTestCase):
         self.assertEqual(state.data["end_locality"], "B")
         self.assertEqual(state.last_state, "search_end_district")
         callback.answer.assert_awaited_once()
-        self.assertIn("(конечная)", edit_or_send_clean.await_args.args[1])
+        chat_ui.update_flow.assert_awaited_once()
+        self.assertIn("(конечная)", chat_ui.update_flow.await_args.kwargs["text"])
 
     async def test_pick_end_stop_sets_trip_date_and_calendar_target(self) -> None:
-        orchestrator, _, edit_or_send_clean = self._build_orchestrator()
+        orchestrator, chat_ui = self._build_orchestrator()
         state = _FakeState()
         state.data.update(
             start_point=1,
@@ -205,33 +218,37 @@ class TripFlowOrchestratorTests(IsolatedAsyncioTestCase):
         self.assertEqual(state.data["calendar_target"], "create")
         self.assertEqual(state.last_state, "create_trip_date")
         callback.answer.assert_awaited_once()
-        self.assertEqual(edit_or_send_clean.await_args.kwargs["reply_markup"][2], "create_end_stop")
+        markup = chat_ui.update_flow.await_args.kwargs["inline_markup"]
+        self.assertEqual(markup[2], "create_end_stop")
 
-    async def test_apply_start_locality_from_geo_unknown_removes_reply_keyboard(self) -> None:
-        orchestrator, _, _ = self._build_orchestrator()
+    async def test_apply_start_locality_from_geo_unknown_keeps_anchor_locality_choice(self) -> None:
+        orchestrator, chat_ui = self._build_orchestrator()
         state = _FakeState()
         repo = _FakeRepo()
         msg = _FakeMessage()
 
         await orchestrator.apply_start_locality_from_geo(msg, state, repo, "search", "НетТакого")
 
-        msg.answer.assert_awaited_once()
-        self.assertIsInstance(msg.answer.await_args.kwargs["reply_markup"], ReplyKeyboardRemove)
+        chat_ui.update_flow.assert_awaited_once()
+        kwargs = chat_ui.update_flow.await_args.kwargs
+        self.assertIn("Этого населённого пункта", kwargs["text"])
+        self.assertIsNone(kwargs["reply_keyboard"])
 
-    async def test_apply_start_locality_from_geo_uses_reply_hook(self) -> None:
-        reply_hook = AsyncMock()
-        orchestrator, _, _ = self._build_orchestrator(reply_stop_step_message=reply_hook)
+    async def test_apply_start_locality_from_geo_transitions_to_district_step(self) -> None:
+        orchestrator, chat_ui = self._build_orchestrator()
         state = _FakeState()
         repo = _FakeRepo()
         msg = _FakeMessage()
 
         await orchestrator.apply_start_locality_from_geo(msg, state, repo, "search", "A")
 
-        reply_hook.assert_awaited_once()
+        chat_ui.update_flow.assert_awaited_once()
         self.assertEqual(state.data["start_locality"], "A")
+        self.assertEqual(state.last_state, "search_start_district")
+        self.assertIsNone(chat_ui.update_flow.await_args.kwargs["reply_keyboard"])
 
-    async def test_transition_geo_pick_start_stop_sets_end_locality_step(self) -> None:
-        orchestrator, _, edit_or_send_clean = self._build_orchestrator()
+    async def test_transition_geo_pick_start_stop_deletes_suggest_and_opens_fresh_anchor(self) -> None:
+        orchestrator, chat_ui = self._build_orchestrator()
         state = _FakeState()
         state.data["geo_suggest_message_id"] = 777
         state.data["geo_user_location_message_ids"] = [123, 456]
@@ -243,15 +260,19 @@ class TripFlowOrchestratorTests(IsolatedAsyncioTestCase):
         self.assertEqual(state.data["start_point"], 10)
         self.assertIsNone(state.data.get("geo_suggest_message_id"))
         self.assertEqual(state.data.get("geo_user_location_message_ids"), [])
-        self.assertEqual(
-            callback.bot.delete_message.await_args_list,
-            [call(555, 123), call(555, 456)],
-        )
+        deleted_ids = [c.args[1] for c in callback.bot.delete_message.await_args_list]
+        self.assertEqual(deleted_ids, [123, 456, 777])
         self.assertEqual(state.last_state, "search_end_locality")
-        edit_or_send_clean.assert_awaited_once()
+        chat_ui.update_flow.assert_not_called()
+        chat_ui.close_flow.assert_awaited_once()
+        chat_ui.open_flow.assert_awaited_once()
+        kwargs = chat_ui.open_flow.await_args.kwargs
+        self.assertEqual(kwargs["flow_kind"], "search")
+        self.assertEqual(kwargs["text"], "END_ENTRY_SEARCH")
+        self.assertIsNone(kwargs["reply_keyboard"])
 
     async def test_pick_locality_start_deletes_geo_suggestion_message(self) -> None:
-        orchestrator, _, _ = self._build_orchestrator()
+        orchestrator, _ = self._build_orchestrator()
         state = _FakeState()
         state.data["geo_suggest_message_id"] = 888
         state.data["geo_user_location_message_ids"] = [444]

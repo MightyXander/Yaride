@@ -14,23 +14,43 @@ router = Router()
 
 @router.message(F.text == "Избранные маршруты")
 async def favorite_routes_menu(message: Message, repo: Repo) -> None:
-    from app.bot_support import favorite_routes_keyboard, send_clean_message
+    from app.bot_support import (
+        close_flow,
+        delete_user_message,
+        favorite_routes_keyboard,
+        main_keyboard,
+        open_flow,
+        send_post_flow_message,
+        with_back_button,
+    )
 
     user = repo.users.get_user(message.from_user.id)
+    await delete_user_message(message)
     if not user:
-        await send_clean_message(message, "Сначала зарегистрируйся через /start.")
+        await close_flow(chat_id=message.chat.id, bot=message.bot)
+        await send_post_flow_message(
+            chat_id=message.chat.id,
+            bot=message.bot,
+            text="Сначала зарегистрируйся через /start.",
+            reply_keyboard=main_keyboard(repo, message.from_user.id),
+        )
         return
     rows = repo.favorites.list_favorites(message.from_user.id)
     if not rows:
-        await send_clean_message(
-            message,
-            "Пока нет избранных маршрутов. После успешной брони можно добавить маршрут кнопкой под сообщением.",
+        await close_flow(chat_id=message.chat.id, bot=message.bot)
+        await send_post_flow_message(
+            chat_id=message.chat.id,
+            bot=message.bot,
+            text="Пока нет избранных маршрутов. После успешной брони можно добавить маршрут кнопкой под сообщением.",
+            reply_keyboard=main_keyboard(repo, message.from_user.id),
         )
         return
-    await send_clean_message(
-        message,
-        "Избранные маршруты — нажми маршрут, затем выбери дату поездки:",
-        reply_markup=favorite_routes_keyboard(rows),
+    await open_flow(
+        chat_id=message.chat.id,
+        bot=message.bot,
+        flow_kind="favorites",
+        text="Избранные маршруты — нажми маршрут, затем выбери дату поездки:",
+        inline_markup=with_back_button(favorite_routes_keyboard(rows), target="menu"),
     )
 
 
@@ -50,7 +70,7 @@ async def fav_add(callback: CallbackQuery, repo: Repo) -> None:
 
 @router.callback_query(F.data.startswith("fav_route:"))
 async def favorite_route_pick_date(callback: CallbackQuery, state: FSMContext, repo: Repo) -> None:
-    from app.bot_support import add_back_button, edit_or_send_clean
+    from app.bot_support import add_back_button, update_flow
     from app.yaride_calendar import trip_calendar
 
     fid = int(callback.data.split(":")[1])
@@ -64,9 +84,12 @@ async def favorite_route_pick_date(callback: CallbackQuery, state: FSMContext, r
         end_point=int(row["end_point_id"]),
         calendar_target="search",
     )
-    await edit_or_send_clean(
-        callback,
-        f"{row['start_title']} → {row['end_title']}\nВыбери дату поездки:",
-        reply_markup=add_back_button(await trip_calendar().start_calendar(), "menu"),
-    )
+    if callback.message:
+        await update_flow(
+            chat_id=callback.message.chat.id,
+            bot=callback.bot,
+            flow_kind="favorites",
+            text=f"{row['start_title']} → {row['end_title']}\nВыбери дату поездки:",
+            inline_markup=add_back_button(await trip_calendar().start_calendar(), "menu"),
+        )
     await callback.answer()

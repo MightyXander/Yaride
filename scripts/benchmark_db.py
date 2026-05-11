@@ -75,12 +75,8 @@ def _run_benchmark(db_path: str, *, with_indexes: bool) -> dict[str, float]:
                     (tg, f"u{i}"),
                 )
 
-        drivers = conn.execute(
-            "SELECT id FROM users WHERE role = 'driver' ORDER BY id"
-        ).fetchall()
-        passenger_rows = conn.execute(
-            "SELECT id FROM users WHERE role = 'passenger' ORDER BY id"
-        ).fetchall()
+        drivers = conn.execute("SELECT id FROM users WHERE role = 'driver' ORDER BY id").fetchall()
+        passenger_rows = conn.execute("SELECT id FROM users WHERE role = 'passenger' ORDER BY id").fetchall()
         driver_ids = [int(r["id"]) for r in drivers]
         passenger_ids = [int(r["id"]) for r in passenger_rows]
 

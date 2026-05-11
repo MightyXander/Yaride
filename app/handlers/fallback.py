@@ -21,18 +21,22 @@ async def go_back(callback: CallbackQuery, state: FSMContext, repo: Repo) -> Non
 
 @router.message(F.text == "⬅ Назад")
 async def go_back_keyboard(message: Message, state: FSMContext, repo: Repo) -> None:
-    from app.bot_support import NAVIGATION_FLOW
+    from app.bot_support import NAVIGATION_FLOW, delete_user_message
 
     assert NAVIGATION_FLOW is not None
+    await delete_user_message(message)
     await NAVIGATION_FLOW.handle_reply_back(message, state, repo)
 
 
 @router.message()
 async def fallback(message: Message, repo: Repo) -> None:
-    from app.bot_support import main_keyboard, send_clean_message
+    from app.bot_support import close_flow, delete_user_message, main_keyboard, send_post_flow_message
 
-    await send_clean_message(
-        message,
-        "Используй кнопки меню или /start для регистрации.",
-        reply_markup=main_keyboard(repo, message.from_user.id),
+    await delete_user_message(message)
+    await close_flow(chat_id=message.chat.id, bot=message.bot)
+    await send_post_flow_message(
+        chat_id=message.chat.id,
+        bot=message.bot,
+        text="Используй кнопки меню или /start для регистрации.",
+        reply_keyboard=main_keyboard(repo, message.from_user.id),
     )

@@ -15,14 +15,15 @@ from app.states import CancelBooking
 router = Router()
 logger = logging.getLogger(__name__)
 
+FLOW_KIND_BOOKING = "booking"
+
 
 @router.callback_query(F.data.startswith("book:"))
 async def book_trip(callback: CallbackQuery, repo: Repo) -> None:
     from app.bot_support import (
         add_favorite_keyboard,
-        edit_or_send_clean,
         main_keyboard,
-        track_bot_message,
+        send_post_flow_message,
     )
 
     trip_id = int(callback.data.split(":")[1])
@@ -56,16 +57,15 @@ async def book_trip(callback: CallbackQuery, repo: Repo) -> None:
     )
 
     trip_item = repo.trips.get_trip_public_card(trip_id)
-    await edit_or_send_clean(
-        callback,
-        f"Бронь #{booking_id} создана.\n\nДобавить этот маршрут в избранное?",
-        reply_markup=add_favorite_keyboard(trip_id),
-    )
-    sent = await callback.message.answer(
-        "Готово — ниже клавиатура меню.",
-        reply_markup=main_keyboard(repo, callback.from_user.id),
-    )
-    await track_bot_message(sent)
+    if callback.message:
+        chat_id = callback.message.chat.id
+        await send_post_flow_message(
+            chat_id=chat_id,
+            bot=callback.bot,
+            text=f"Бронь #{booking_id} создана.\n\nДобавить этот маршрут в избранное?",
+            inline_markup=add_favorite_keyboard(trip_id),
+            reply_keyboard=main_keyboard(repo, callback.from_user.id),
+        )
     if trip_item:
         driver_internal_id = trip_item["driver_id"]
         with repo.db.transaction() as conn:
@@ -93,18 +93,34 @@ async def book_trip(callback: CallbackQuery, repo: Repo) -> None:
 async def my_bookings(message: Message, repo: Repo) -> None:
     from app.bot_support import (
         cancel_booking_keyboard,
-        flow_keyboard,
-        send_clean_message,
-        send_flow_step,
+        close_flow,
+        delete_user_message,
+        main_keyboard,
+        open_flow,
+        send_post_flow_message,
+        with_back_button,
     )
 
     user = repo.users.get_user(message.from_user.id)
+    await delete_user_message(message)
     if not user:
-        await send_clean_message(message, "Сначала зарегистрируйся через /start.")
+        await close_flow(chat_id=message.chat.id, bot=message.bot)
+        await send_post_flow_message(
+            chat_id=message.chat.id,
+            bot=message.bot,
+            text="Сначала зарегистрируйся через /start.",
+            reply_keyboard=main_keyboard(repo, message.from_user.id),
+        )
         return
     bookings = repo.bookings.list_passenger_bookings(message.from_user.id)
     if not bookings:
-        await send_clean_message(message, "У тебя пока нет броней.", reply_markup=flow_keyboard())
+        await close_flow(chat_id=message.chat.id, bot=message.bot)
+        await send_post_flow_message(
+            chat_id=message.chat.id,
+            bot=message.bot,
+            text="У тебя пока нет броней.",
+            reply_keyboard=main_keyboard(repo, message.from_user.id),
+        )
         return
     lines = []
     for b in bookings:
@@ -114,12 +130,18 @@ async def my_bookings(message: Message, repo: Repo) -> None:
             f"Бронь #{b['id']} | trip #{b['trip_id']} | {b['start_title']} -> {b['end_title']} | "
             f"{format_trip_row(b)} | {b['price_rub']} руб | статус: {status}{reason}"
         )
-    await send_flow_step(message, "\n".join(lines), cancel_booking_keyboard(bookings))
+    await open_flow(
+        chat_id=message.chat.id,
+        bot=message.bot,
+        flow_kind=FLOW_KIND_BOOKING,
+        text="\n".join(lines),
+        inline_markup=with_back_button(cancel_booking_keyboard(bookings), target="menu"),
+    )
 
 
 @router.callback_query(F.data.startswith("cancel_booking:"))
 async def cancel_booking_start(callback: CallbackQuery, state: FSMContext, repo: Repo) -> None:
-    from app.bot_support import edit_or_send_clean
+    from app.bot_support import flow_keyboard, update_flow
 
     booking_id = int(callback.data.split(":")[1])
     booking = repo.bookings.get_booking_for_cancel(callback.from_user.id, booking_id)
@@ -131,27 +153,51 @@ async def cancel_booking_start(callback: CallbackQuery, state: FSMContext, repo:
         return
     await state.update_data(booking_id=booking_id)
     await state.set_state(CancelBooking.waiting_reason)
-    await edit_or_send_clean(callback, "Напиши причину отмены (она уйдёт водителю):")
+    if callback.message:
+        await update_flow(
+            chat_id=callback.message.chat.id,
+            bot=callback.bot,
+            flow_kind=FLOW_KIND_BOOKING,
+            text="Напиши причину отмены (она уйдёт водителю):",
+            inline_markup=None,
+            reply_keyboard=flow_keyboard(),
+        )
     await callback.answer()
 
 
 @router.message(CancelBooking.waiting_reason)
 async def cancel_booking_reason(message: Message, state: FSMContext, repo: Repo) -> None:
-    from app.bot_support import main_keyboard, send_clean_message
+    from app.bot_support import (
+        close_flow,
+        delete_user_message,
+        flow_keyboard,
+        main_keyboard,
+        send_post_flow_message,
+        update_flow,
+    )
 
     reason = (message.text or "").strip()
+    await delete_user_message(message)
     if len(reason) < 3:
-        await send_clean_message(message, "Причина слишком короткая. Укажи подробнее.")
+        await update_flow(
+            chat_id=message.chat.id,
+            bot=message.bot,
+            flow_kind=FLOW_KIND_BOOKING,
+            text="Причина слишком короткая. Укажи подробнее.",
+            reply_keyboard=flow_keyboard(),
+        )
         return
     data = await state.get_data()
     booking_id_raw = data.get("booking_id")
     if booking_id_raw is None:
-        await send_clean_message(
-            message,
-            "Сессия отмены брони устарела. Открой «Мои брони» и выбери отмену снова.",
-            reply_markup=main_keyboard(repo, message.from_user.id),
-        )
         await state.clear()
+        await close_flow(chat_id=message.chat.id, bot=message.bot)
+        await send_post_flow_message(
+            chat_id=message.chat.id,
+            bot=message.bot,
+            text="Сессия отмены брони устарела. Открой «Мои брони» и выбери отмену снова.",
+            reply_keyboard=main_keyboard(repo, message.from_user.id),
+        )
         return
     booking_id = int(booking_id_raw)
     try:
@@ -165,8 +211,14 @@ async def cancel_booking_reason(message: Message, state: FSMContext, repo: Repo)
             "rejected",
             str(exc),
         )
-        await send_clean_message(message, str(exc))
         await state.clear()
+        await close_flow(chat_id=message.chat.id, bot=message.bot)
+        await send_post_flow_message(
+            chat_id=message.chat.id,
+            bot=message.bot,
+            text=str(exc),
+            reply_keyboard=main_keyboard(repo, message.from_user.id),
+        )
         return
     logger.info(
         "critical action=%s tg_user_id=%s booking_id=%s trip_id=%s outcome=%s",
@@ -177,8 +229,12 @@ async def cancel_booking_reason(message: Message, state: FSMContext, repo: Repo)
         "success",
     )
     await state.clear()
-    await send_clean_message(
-        message, f"Бронь #{booking_id} отменена.", reply_markup=main_keyboard(repo, message.from_user.id)
+    await close_flow(chat_id=message.chat.id, bot=message.bot)
+    await send_post_flow_message(
+        chat_id=message.chat.id,
+        bot=message.bot,
+        text=f"Бронь #{booking_id} отменена.",
+        reply_keyboard=main_keyboard(repo, message.from_user.id),
     )
     try:
         await message.bot.send_message(
