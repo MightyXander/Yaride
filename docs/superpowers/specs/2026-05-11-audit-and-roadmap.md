@@ -158,11 +158,11 @@ AGENTS.md на 2026-05-11 говорит: «The `.env` file is committed to the 
 
 | Этап | Спек | План | Статус | Примечание |
 |------|------|------|--------|------------|
-| 0 | `2026-05-11-etap-0-hygiene-and-foundations.md` | `plans/2026-05-11-etap-0-hygiene-and-foundations.md` | ☐ не начат | |
-| 1 | `2026-05-11-etap-1-data-resilience.md` | TBD | ☐ не начат | |
-| 2 | `2026-05-11-etap-2-db-performance.md` | TBD | ☐ не начат | |
-| 3 | `2026-05-11-etap-3-architecture-refactor.md` | TBD | ☐ не начат | |
-| 4 | `2026-05-11-etap-4-chat-ux.md` | TBD | ☐ не начат | |
+| 0 | `2026-05-11-etap-0-hygiene-and-foundations.md` | `plans/2026-05-11-etap-0-hygiene-and-foundations.md` | см. git | закрыт по факту репозитория |
+| 1 | `2026-05-11-etap-1-data-resilience.md` | TBD | см. git | |
+| 2 | `2026-05-11-etap-2-db-performance.md` | (inline в спеке / PR) | смержено | индексы v3, один SQL rating prompts |
+| 3 | `2026-05-11-etap-3-architecture-refactor.md` | `plans/2026-05-11-etap-3-architecture-refactor.md` | в работе | распил `bot.py`, bootstrap, Repo |
+| 4 | `2026-05-11-etap-4-chat-ux.md` | TBD | ☐ не начат | после этапа 3 |
 
 **Легенда статуса (по желанию):** не начат / в работе / PR / смержено / заблокирован.
 
