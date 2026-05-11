@@ -26,9 +26,9 @@ from aiogram.types import (
 from aiogram_calendar import SimpleCalendar, SimpleCalendarCallback
 from aiogram_calendar.schemas import SimpleCalAct
 
+from app.bootstrap import attach_to_dispatcher, build_container
 from app.chat_ui import ChatUiService
-from app.config import Settings, load_settings
-from app.db import Database
+from app.config import Settings
 from app.driver_license import normalize_dl_series_number, parse_expiry_date, validate_license_not_expired
 from app.filters import RatingReviewReplyFilter
 from app.formatting import format_trip_row, format_trip_when
@@ -270,12 +270,6 @@ def main_keyboard(repo: Repo, tg_user_id: int) -> ReplyKeyboardMarkup:
     user = repo.get_user(tg_user_id)
     is_driver = user is not None and user["role"] == "driver"
     return KEYBOARDS.main_keyboard(is_driver=is_driver)
-
-
-def _chat_main_kb(tg_user_id: int) -> ReplyKeyboardMarkup:
-    if _REPO_FOR_KB is None:
-        return KEYBOARDS.main_keyboard(is_driver=False)
-    return main_keyboard(_REPO_FOR_KB, tg_user_id)
 
 
 CHAT_UI: ChatUiService
@@ -1776,22 +1770,17 @@ async def run() -> None:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s [%(filename)s:%(lineno)d] %(message)s",
     )
-    settings = load_settings()
-    _SETTINGS = settings
-    KEYBOARDS = KeyboardFactory(settings=settings)
-    db = Database(settings.db_path)
-    db.init_schema()
-    repo = Repo(db)
-    _REPO_FOR_KB = repo
-    CHAT_UI = ChatUiService(
-        main_keyboard_provider=_chat_main_kb,
-        flow_keyboard_provider=lambda: KEYBOARDS.flow_keyboard(),
-        database=db,
-    )
+    container = build_container()
+    _SETTINGS = container.settings
+    KEYBOARDS = container.keyboards
+    _REPO_FOR_KB = container.repo
+    CHAT_UI = container.chat_ui
+    settings = container.settings
+    repo = container.repo
 
     bot = Bot(token=settings.bot_token)
     dp = Dispatcher()
-    dp["repo"] = repo
+    attach_to_dispatcher(dp, container, flow=FLOW_ORCHESTRATOR, navigation_flow=NAVIGATION_FLOW)
     dp.include_router(router)
 
     # Снимает webhook и не обрабатывает старые апдейты из очереди до рестарта.
@@ -1833,4 +1822,4 @@ async def run() -> None:
         if background_tasks:
             await asyncio.gather(*background_tasks, return_exceptions=True)
         await bot.session.close()
-        db.close()
+        container.db.close()
