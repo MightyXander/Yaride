@@ -71,3 +71,12 @@ def format_trip_row(row) -> str:
         row["departure_time"] if "departure_time" in keys else None,
         row["time_slot"] if "time_slot" in keys else None,
     )
+
+
+def passenger_rating_hint(row) -> str:
+    """Подпись «X.Y, оценок: N» (или «нет оценок») для строки с `rating_count` и `rating_avg`."""
+    rc = int(row["rating_count"] or 0)
+    ra = float(row["rating_avg"] or 0.0)
+    if rc == 0:
+        return "нет оценок"
+    return f"{ra:.1f}, оценок: {rc}"

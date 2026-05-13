@@ -160,7 +160,6 @@ class TripFlowOrchestratorTests(IsolatedAsyncioTestCase):
         orchestrator = TripFlowOrchestrator(
             mode_cfg=_build_mode_cfg(),
             chat_ui=chat_ui,
-            add_back_button=lambda markup, back: ("BACK", markup, back),
             localities_keyboard=lambda prefix, localities: ("LOC", prefix, tuple(localities)),
             districts_keyboard=lambda prefix, districts: ("DIST", prefix, tuple(districts)),
             stops_keyboard=lambda stops, prefix: ("STOP", prefix, tuple((s["id"], s["title"]) for s in stops)),
@@ -219,7 +218,7 @@ class TripFlowOrchestratorTests(IsolatedAsyncioTestCase):
         self.assertEqual(state.last_state, "create_trip_date")
         callback.answer.assert_awaited_once()
         markup = chat_ui.update_flow.await_args.kwargs["inline_markup"]
-        self.assertEqual(markup[2], "create_end_stop")
+        self.assertEqual(markup, "CALENDAR_MARKUP")
 
     async def test_apply_start_locality_from_geo_unknown_keeps_anchor_locality_choice(self) -> None:
         orchestrator, chat_ui = self._build_orchestrator()

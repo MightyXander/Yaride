@@ -9,7 +9,6 @@ from app.chat_ui import UNSET, ChatUiService
 from app.flow_mode_cfg import (
     FLOW_MODE_CFG,
     ROUTE_STEP_KEYS,
-    STEP_PARENT_CFG_KEY,
     STEP_TO_STATE_ATTR,
 )
 
@@ -26,7 +25,6 @@ class NavigationFlow:
         chat_ui: ChatUiService,
         main_keyboard: Callable[..., Any],
         role_switch_keyboard: Callable[..., Any],
-        add_back_button: Callable[..., Any],
         localities_keyboard: Callable[..., Any],
         districts_keyboard: Callable[..., Any],
         stops_keyboard: Callable[..., Any],
@@ -42,7 +40,6 @@ class NavigationFlow:
         self._chat_ui = chat_ui
         self._main_keyboard = main_keyboard
         self._role_switch_keyboard = role_switch_keyboard
-        self._add_back_button = add_back_button
         self._localities_keyboard = localities_keyboard
         self._districts_keyboard = districts_keyboard
         self._stops_keyboard = stops_keyboard
@@ -61,12 +58,6 @@ class NavigationFlow:
                 if rest in ROUTE_STEP_KEYS:
                     return mode, rest
         return None
-
-    def _parent_back_target(self, cfg: dict[str, Any], step: str) -> str:
-        key = STEP_PARENT_CFG_KEY[step]
-        if key is None:
-            return "menu"
-        return str(cfg[key])
 
     async def _update_callback_flow(
         self,
@@ -126,7 +117,7 @@ class NavigationFlow:
                 callback,
                 flow_kind,
                 cfg["entry_text"],
-                self._add_back_button(self._localities_keyboard(cfg["start_locality_prefix"], locs), "menu"),
+                self._localities_keyboard(cfg["start_locality_prefix"], locs),
                 reply_keyboard=UNSET,
             )
             return
@@ -140,9 +131,7 @@ class NavigationFlow:
                 callback,
                 flow_kind,
                 f"{locality}: выбери район:",
-                self._add_back_button(
-                    self._districts_keyboard(cfg["start_district_prefix"], districts), cfg["start_locality_back"]
-                ),
+                self._districts_keyboard(cfg["start_district_prefix"], districts),
             )
             return
 
@@ -156,9 +145,7 @@ class NavigationFlow:
                 callback,
                 flow_kind,
                 "Выбери административный район:",
-                self._add_back_button(
-                    self._districts_keyboard(cfg["start_admin_prefix"], admin_areas), cfg["start_district_back"]
-                ),
+                self._districts_keyboard(cfg["start_admin_prefix"], admin_areas),
             )
             return
 
@@ -173,7 +160,7 @@ class NavigationFlow:
                 callback,
                 flow_kind,
                 "Выбери остановку посадки:",
-                self._add_back_button(self._stops_keyboard(stops, cfg["start_stop_prefix"]), cfg["start_admin_back"]),
+                self._stops_keyboard(stops, cfg["start_stop_prefix"]),
             )
             return
 
@@ -183,10 +170,7 @@ class NavigationFlow:
                 callback,
                 flow_kind,
                 cfg["end_entry_text"],
-                self._add_back_button(
-                    self._localities_keyboard(cfg["end_locality_prefix"], locs),
-                    self._parent_back_target(cfg, step),
-                ),
+                self._localities_keyboard(cfg["end_locality_prefix"], locs),
             )
             return
 
@@ -199,9 +183,7 @@ class NavigationFlow:
                 callback,
                 flow_kind,
                 f"{locality}: выбери район (конечная):",
-                self._add_back_button(
-                    self._districts_keyboard(cfg["end_district_prefix"], districts), cfg["end_locality_back"]
-                ),
+                self._districts_keyboard(cfg["end_district_prefix"], districts),
             )
             return
 
@@ -215,9 +197,7 @@ class NavigationFlow:
                 callback,
                 flow_kind,
                 "Выбери административный район (конечная):",
-                self._add_back_button(
-                    self._districts_keyboard(cfg["end_admin_prefix"], admin_areas), cfg["end_district_back"]
-                ),
+                self._districts_keyboard(cfg["end_admin_prefix"], admin_areas),
             )
             return
 
@@ -232,7 +212,7 @@ class NavigationFlow:
                 callback,
                 flow_kind,
                 "Выбери остановку высадки:",
-                self._add_back_button(self._stops_keyboard(stops, cfg["end_stop_prefix"]), cfg["end_admin_back"]),
+                self._stops_keyboard(stops, cfg["end_stop_prefix"]),
             )
 
     async def _go_to_main_menu(self, *, chat_id: int, bot: Any, repo: Any, tg_user_id: int) -> None:
@@ -293,7 +273,7 @@ class NavigationFlow:
                 callback,
                 "create",
                 "Выбери дату поездки (календарь):",
-                self._add_back_button(await self._trip_calendar_factory().start_calendar(), "create_end_stop"),
+                await self._trip_calendar_factory().start_calendar(),
             )
             await state.update_data(calendar_target="create")
             await callback.answer()
@@ -305,7 +285,7 @@ class NavigationFlow:
                 callback,
                 "create",
                 "Выбери время отправления:",
-                self._add_back_button(self._time_keyboard("create_time"), "create_date"),
+                self._time_keyboard("create_time"),
             )
             await callback.answer()
             return
@@ -316,7 +296,7 @@ class NavigationFlow:
                 callback,
                 "create",
                 "Выбери количество пассажиров:",
-                self._add_back_button(self._seats_keyboard(), "create_time"),
+                self._seats_keyboard(),
             )
             await callback.answer()
             return

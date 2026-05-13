@@ -115,7 +115,6 @@ async def create_pick_end_stop(callback: CallbackQuery, state: FSMContext, repo:
 async def create_set_time(callback: CallbackQuery, state: FSMContext, repo: Repo) -> None:
     from app.bot_support import (
         STALE_CREATE_FLOW,
-        add_back_button,
         close_flow,
         main_keyboard,
         seats_keyboard,
@@ -145,7 +144,7 @@ async def create_set_time(callback: CallbackQuery, state: FSMContext, repo: Repo
             bot=callback.bot,
             flow_kind=FLOW_KIND,
             text="Выбери количество пассажиров:",
-            inline_markup=add_back_button(seats_keyboard(), "create_time"),
+            inline_markup=seats_keyboard(),
         )
     await callback.answer()
 
@@ -155,7 +154,6 @@ async def create_set_seats(callback: CallbackQuery, state: FSMContext, repo: Rep
     from app.bot_support import (
         STALE_CREATE_FLOW,
         _active_settings,
-        add_back_button,
         close_flow,
         main_keyboard,
         price_keyboard,
@@ -191,7 +189,7 @@ async def create_set_seats(callback: CallbackQuery, state: FSMContext, repo: Rep
                 bot=callback.bot,
                 flow_kind=FLOW_KIND,
                 text=f"Допустимо только: {allowed_seats}.",
-                inline_markup=add_back_button(seats_keyboard(), "create_time"),
+                inline_markup=seats_keyboard(),
             )
         await callback.answer()
         return
@@ -203,7 +201,7 @@ async def create_set_seats(callback: CallbackQuery, state: FSMContext, repo: Rep
             bot=callback.bot,
             flow_kind=FLOW_KIND,
             text="Выбери цену поездки:",
-            inline_markup=add_back_button(price_keyboard(), "create_seats"),
+            inline_markup=price_keyboard(),
         )
     await callback.answer()
 
@@ -213,7 +211,6 @@ async def create_set_price(callback: CallbackQuery, state: FSMContext, repo: Rep
     from app.bot_support import (
         STALE_CREATE_FLOW,
         _active_settings,
-        add_back_button,
         close_flow,
         main_keyboard,
         price_keyboard,
@@ -235,7 +232,7 @@ async def create_set_price(callback: CallbackQuery, state: FSMContext, repo: Rep
                 bot=callback.bot,
                 flow_kind=FLOW_KIND,
                 text=f"Доступные цены: {allowed_prices}.",
-                inline_markup=add_back_button(price_keyboard(), "create_seats"),
+                inline_markup=price_keyboard(),
             )
         await callback.answer()
         return

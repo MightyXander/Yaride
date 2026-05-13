@@ -85,10 +85,6 @@ def districts_keyboard(prefix: str, districts: list[str]) -> InlineKeyboardMarku
     return _ctx().keyboards.districts_keyboard(prefix, districts)
 
 
-def add_back_button(markup: InlineKeyboardMarkup, back_callback: str) -> InlineKeyboardMarkup:
-    return _ctx().keyboards.add_back_button(markup, back_callback)
-
-
 def with_back_button(markup: InlineKeyboardMarkup, target: str = "menu") -> InlineKeyboardMarkup:
     return _ctx().keyboards.with_back_button(markup, target)
 
@@ -147,14 +143,6 @@ def account_kb_menu(show_become_driver: bool) -> InlineKeyboardMarkup:
 
 def account_kb_back() -> InlineKeyboardMarkup:
     return _ctx().keyboards.account_back_keyboard()
-
-
-def _passenger_rating_hint(row) -> str:
-    rc = int(row["rating_count"] or 0)
-    ra = float(row["rating_avg"] or 0.0)
-    if rc == 0:
-        return "нет оценок"
-    return f"{ra:.1f}, оценок: {rc}"
 
 
 # ── anchor API: тонкие обёртки над ChatUiService ───────────────────────────
@@ -244,7 +232,7 @@ async def delete_user_message(message: Message) -> None:
 async def _safe_delete_message(bot: Bot, chat_id: int, message_id: int) -> None:
     try:
         await bot.delete_message(chat_id, message_id)
-    except (TelegramBadRequest, Exception):
+    except (TelegramBadRequest, TelegramForbiddenError):
         pass
 
 
@@ -275,7 +263,6 @@ def configure(container: Container) -> tuple[TripFlowOrchestrator, NavigationFlo
     orch = TripFlowOrchestrator(
         mode_cfg=FLOW_MODE_CFG,
         chat_ui=container.chat_ui,
-        add_back_button=add_back_button,
         localities_keyboard=localities_keyboard,
         districts_keyboard=districts_keyboard,
         stops_keyboard=stops_keyboard,
@@ -290,7 +277,6 @@ def configure(container: Container) -> tuple[TripFlowOrchestrator, NavigationFlo
         chat_ui=container.chat_ui,
         main_keyboard=main_keyboard,
         role_switch_keyboard=role_switch_keyboard,
-        add_back_button=add_back_button,
         localities_keyboard=localities_keyboard,
         districts_keyboard=districts_keyboard,
         stops_keyboard=stops_keyboard,

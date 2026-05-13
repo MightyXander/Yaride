@@ -59,7 +59,6 @@ class TripFlowOrchestrator:
         *,
         mode_cfg: dict[str, dict[str, Any]],
         chat_ui: ChatUiService,
-        add_back_button: Callable[..., Any],
         localities_keyboard: Callable[..., Any],
         districts_keyboard: Callable[..., Any],
         stops_keyboard: Callable[..., Any],
@@ -68,7 +67,6 @@ class TripFlowOrchestrator:
     ) -> None:
         self._mode_cfg = mode_cfg
         self._chat_ui = chat_ui
-        self._add_back_button = add_back_button
         self._localities_keyboard = localities_keyboard
         self._districts_keyboard = districts_keyboard
         self._stops_keyboard = stops_keyboard
@@ -112,9 +110,7 @@ class TripFlowOrchestrator:
             bot=message.bot,
             flow_kind=self._flow_kind(mode),
             text=cfg["entry_text"],
-            inline_markup=self._add_back_button(
-                self._localities_keyboard(cfg["start_locality_prefix"], localities), "menu"
-            ),
+            inline_markup=self._localities_keyboard(cfg["start_locality_prefix"], localities),
             reply_keyboard=self._location_reply_keyboard(),
             reply_hint="📍 Отправь геолокацию — покажем ближайшие остановки посадки. Или выбери город кнопками выше.",
         )
@@ -135,19 +131,14 @@ class TripFlowOrchestrator:
                 bot=message.bot,
                 flow_kind=self._flow_kind(mode),
                 text="Этого населённого пункта нет в списке маршрутов. Выбери из списка кнопкой.",
-                inline_markup=self._add_back_button(
-                    self._localities_keyboard(cfg["start_locality_prefix"], localities), "menu"
-                ),
+                inline_markup=self._localities_keyboard(cfg["start_locality_prefix"], localities),
                 reply_keyboard=None,
             )
             return
         await state.update_data(start_locality=locality)
         districts = repo.routes.list_districts(locality)
         await state.set_state(cfg["state_group"].start_district)
-        markup = self._add_back_button(
-            self._districts_keyboard(cfg["start_district_prefix"], districts),
-            cfg["start_locality_back"],
-        )
+        markup = self._districts_keyboard(cfg["start_district_prefix"], districts)
         await self._chat_ui.update_flow(
             chat_id=message.chat.id,
             bot=message.bot,
@@ -203,7 +194,6 @@ class TripFlowOrchestrator:
         key = "start_locality" if is_start else "end_locality"
         next_state = cfg["state_group"].start_district if is_start else cfg["state_group"].end_district
         districts_prefix = cfg["start_district_prefix"] if is_start else cfg["end_district_prefix"]
-        back_target = cfg["start_locality_back"] if is_start else cfg["end_locality_back"]
         title_suffix = "" if is_start else " (конечная)"
 
         await state.update_data(**{key: locality})
@@ -213,7 +203,7 @@ class TripFlowOrchestrator:
             callback,
             mode=mode,
             text=f"{locality}: выбери район{title_suffix}:",
-            inline_markup=self._add_back_button(self._districts_keyboard(districts_prefix, districts), back_target),
+            inline_markup=self._districts_keyboard(districts_prefix, districts),
             reply_keyboard=None if is_start else UNSET,
         )
         await callback.answer()
@@ -248,8 +238,6 @@ class TripFlowOrchestrator:
         point_key = "start_point" if is_start else "end_point"
         prefix_admin = cfg["start_admin_prefix"] if is_start else cfg["end_admin_prefix"]
         prefix_stop = cfg["start_stop_prefix"] if is_start else cfg["end_stop_prefix"]
-        back_district = cfg["start_district_back"] if is_start else cfg["end_district_back"]
-        back_admin = cfg["start_admin_back"] if is_start else cfg["end_admin_back"]
 
         locality = data[locality_key]
         districts = repo.routes.list_districts(locality)
@@ -272,8 +260,6 @@ class TripFlowOrchestrator:
                 await state.set_state(state_stop)
                 hdr = f"Остановка {'посадки' if is_start else 'высадки'} ({district}) — все точки района:"
                 inline_kb = self._stops_keyboard(merged_stops, prefix_stop)
-                if not is_start:
-                    inline_kb = self._add_back_button(inline_kb, back_district)
                 await self._update(callback, mode=mode, text=hdr, inline_markup=inline_kb)
                 await callback.answer()
                 return
@@ -286,7 +272,7 @@ class TripFlowOrchestrator:
                 callback,
                 mode=mode,
                 text=f"{label}: выбери административный район{suffix}:",
-                inline_markup=self._add_back_button(self._districts_keyboard(prefix_admin, admin_areas), back_district),
+                inline_markup=self._districts_keyboard(prefix_admin, admin_areas),
             )
             await callback.answer()
             return
@@ -299,8 +285,6 @@ class TripFlowOrchestrator:
             state_value = cfg["state_group"].start_stop if is_start else cfg["state_group"].end_stop
             await state.set_state(state_value)
             inline_kb = self._stops_keyboard(stops, prefix_stop)
-            if not is_start:
-                inline_kb = self._add_back_button(inline_kb, back_admin)
             await self._update(
                 callback,
                 mode=mode,
@@ -377,12 +361,11 @@ class TripFlowOrchestrator:
         state_value = cfg["state_group"].start_stop if is_start else cfg["state_group"].end_stop
         await state.set_state(state_value)
         prefix = cfg["start_stop_prefix"] if is_start else cfg["end_stop_prefix"]
-        back = cfg["start_admin_back"] if is_start else cfg["end_admin_back"]
         await self._update(
             callback,
             mode=mode,
             text=f"Остановка {'посадки' if is_start else 'высадки'} ({admin_area}):",
-            inline_markup=self._add_back_button(self._stops_keyboard(stops, prefix), back),
+            inline_markup=self._stops_keyboard(stops, prefix),
         )
         await callback.answer()
 
@@ -434,10 +417,7 @@ class TripFlowOrchestrator:
             callback,
             mode=mode,
             text=cfg["end_entry_text"],
-            inline_markup=self._add_back_button(
-                self._localities_keyboard(cfg["end_locality_prefix"], localities),
-                cfg["start_stop_back"],
-            ),
+            inline_markup=self._localities_keyboard(cfg["end_locality_prefix"], localities),
         )
         await callback.answer()
 
@@ -484,10 +464,7 @@ class TripFlowOrchestrator:
             callback,
             mode=mode,
             text="Выбери дату поездки (календарь):",
-            inline_markup=self._add_back_button(
-                await self._trip_calendar_factory().start_calendar(),
-                cfg["end_stop_back"],
-            ),
+            inline_markup=await self._trip_calendar_factory().start_calendar(),
         )
         await state.update_data(calendar_target=mode)
         await callback.answer()
@@ -538,10 +515,7 @@ class TripFlowOrchestrator:
                 bot=bot,
                 flow_kind=self._flow_kind(mode),
                 text=cfg["end_entry_text"],
-                inline_markup=self._add_back_button(
-                    self._localities_keyboard(cfg["end_locality_prefix"], localities),
-                    cfg["start_stop_back"],
-                ),
+                inline_markup=self._localities_keyboard(cfg["end_locality_prefix"], localities),
                 reply_keyboard=None,
             )
         await callback.answer()

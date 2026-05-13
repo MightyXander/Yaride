@@ -118,13 +118,6 @@ class KeyboardFactory:
         return kb.as_markup()
 
     @staticmethod
-    def add_back_button(markup: InlineKeyboardMarkup, back_callback: str) -> InlineKeyboardMarkup:
-        # Inline-кнопки "Назад" в flow-маршруте отключены: навигация только через reply-кнопку.
-        # Для root-меню используется `with_back_button` — он явно добавляет inline-кнопку.
-        _ = back_callback
-        return markup
-
-    @staticmethod
     def with_back_button(markup: InlineKeyboardMarkup, target: str = "menu") -> InlineKeyboardMarkup:
         """Добавляет в конец клавиатуры inline-кнопку «⬅ Назад» с `callback_data=f"back:{target}"`.
 

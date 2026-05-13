@@ -70,7 +70,7 @@ async def fav_add(callback: CallbackQuery, repo: Repo) -> None:
 
 @router.callback_query(F.data.startswith("fav_route:"))
 async def favorite_route_pick_date(callback: CallbackQuery, state: FSMContext, repo: Repo) -> None:
-    from app.bot_support import add_back_button, update_flow
+    from app.bot_support import update_flow
     from app.yaride_calendar import trip_calendar
 
     fid = int(callback.data.split(":")[1])
@@ -90,6 +90,6 @@ async def favorite_route_pick_date(callback: CallbackQuery, state: FSMContext, r
             bot=callback.bot,
             flow_kind="favorites",
             text=f"{row['start_title']} → {row['end_title']}\nВыбери дату поездки:",
-            inline_markup=add_back_button(await trip_calendar().start_calendar(), "menu"),
+            inline_markup=await trip_calendar().start_calendar(),
         )
     await callback.answer()

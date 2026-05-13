@@ -110,7 +110,6 @@ class NavigationFlowTests(IsolatedAsyncioTestCase):
             chat_ui=chat_ui,
             main_keyboard=lambda repo, uid: "MAIN",
             role_switch_keyboard=lambda role: f"ROLE:{role}",
-            add_back_button=lambda markup, back: ("BACK", markup, back),
             localities_keyboard=lambda prefix, items: ("LOC", prefix, tuple(items)),
             districts_keyboard=lambda prefix, items: ("DIST", prefix, tuple(items)),
             stops_keyboard=lambda stops, prefix: ("STOP", prefix, tuple(stops)),

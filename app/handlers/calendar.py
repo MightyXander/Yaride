@@ -28,7 +28,6 @@ async def process_calendar_selection(
     from app.bot_support import (
         STALE_CREATE_FLOW,
         STALE_SEARCH_FLOW,
-        add_back_button,
         close_flow,
         main_keyboard,
         send_post_flow_message,
@@ -122,7 +121,7 @@ async def process_calendar_selection(
                 bot=callback.bot,
                 flow_kind="create",
                 text="Выбери время отправления:",
-                inline_markup=add_back_button(time_keyboard("create_time"), "create_date"),
+                inline_markup=time_keyboard("create_time"),
             )
         await callback.answer()
         return

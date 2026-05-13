@@ -7,7 +7,7 @@ import logging
 from aiogram import F, Router
 from aiogram.types import CallbackQuery, Message
 
-from app.formatting import format_trip_row, format_trip_when
+from app.formatting import format_trip_row, format_trip_when, passenger_rating_hint
 from app.repo import Repo
 
 router = Router()
@@ -162,7 +162,6 @@ async def driver_manage_back_to_root(callback: CallbackQuery, repo: Repo) -> Non
 @router.callback_query(F.data.startswith("manage_trip:"))
 async def driver_manage_trip_detail(callback: CallbackQuery, repo: Repo) -> None:
     from app.bot_support import (
-        _passenger_rating_hint,
         driver_trip_detail_keyboard,
         update_flow,
         with_back_button,
@@ -193,7 +192,7 @@ async def driver_manage_trip_detail(callback: CallbackQuery, repo: Repo) -> None
         lines.append("пока никто не забронировал.")
     else:
         for b in bookings:
-            lines.append(f"— {b['passenger_name']}, рейтинг: {_passenger_rating_hint(b)}")
+            lines.append(f"— {b['passenger_name']}, рейтинг: {passenger_rating_hint(b)}")
     if callback.message:
         await update_flow(
             chat_id=callback.message.chat.id,
