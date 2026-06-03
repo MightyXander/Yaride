@@ -1,0 +1,7 @@
+-r requirements.txt
+
+# Только для разработки/тестов.
+ruff>=0.15.12
+# httpx нужен для HTTP-тестов админки (tests/test_admin_web.py через Starlette TestClient).
+# Без него эти тесты автоматически пропускаются.
+httpx>=0.28

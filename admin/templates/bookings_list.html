@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Брони — Yaride Admin{% endblock %}
+{% block content %}
+<h1>Брони</h1>
+<form class="filters" method="get" action="/bookings">
+    <select name="status">
+        <option value="">Все статусы</option>
+        {% for s in statuses %}<option value="{{ s }}" {{ 'selected' if f_status == s }}>{{ s }}</option>{% endfor %}
+    </select>
+    <input type="text" name="trip_id" placeholder="ID поездки" value="{{ f_trip }}">
+    <button type="submit">Фильтр</button>
+</form>
+<table>
+    <thead><tr><th>#</th><th>Поездка</th><th>Маршрут</th><th>Пассажир</th><th>Статус</th><th>Причина</th></tr></thead>
+    <tbody>
+    {% for b in bookings %}
+        <tr>
+            <td>{{ b.id }}</td>
+            <td><a href="/trips/{{ b.trip_id }}">#{{ b.trip_id }}</a></td>
+            <td>{{ b.start_title }} → {{ b.end_title }}</td>
+            <td>{{ b.passenger_name }} ({{ b.passenger_tg_user_id }})</td>
+            <td>{{ b.status }}</td>
+            <td>{{ b.cancel_reason or '—' }}</td>
+        </tr>
+    {% else %}
+        <tr><td colspan="6" class="empty">Нет броней по фильтру.</td></tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

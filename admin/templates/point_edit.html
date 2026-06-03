@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Новая точка' if point is none else 'Точка #' ~ point.id }} — Yaride Admin{% endblock %}
+{% block content %}
+<p><a href="/points">← К списку</a></p>
+<h1>{{ 'Новая точка' if point is none else 'Точка #' ~ point.id }}</h1>
+<form method="post" action="{{ '/points/new' if point is none else '/points/' ~ point.id }}" class="edit">
+    <label>Населённый пункт<input type="text" name="locality" value="{{ point.locality if point else '' }}" required></label>
+    <label>Район<input type="text" name="district" value="{{ point.district if point else '' }}"></label>
+    <label>Подрайон<input type="text" name="admin_area" value="{{ point.admin_area if point else '' }}"></label>
+    <label>Название остановки<input type="text" name="title" value="{{ point.title if point else '' }}" required></label>
+    <label>Широта<input type="text" name="latitude" value="{{ point.latitude if point and point.latitude is not none else '' }}"></label>
+    <label>Долгота<input type="text" name="longitude" value="{{ point.longitude if point and point.longitude is not none else '' }}"></label>
+    <button type="submit">Сохранить</button>
+</form>
+{% if point is not none %}
+<form method="post" action="/points/{{ point.id }}/delete" onsubmit="return confirm('Удалить точку маршрута?');">
+    <button type="submit" class="danger">Удалить</button>
+</form>
+{% endif %}
+{% endblock %}

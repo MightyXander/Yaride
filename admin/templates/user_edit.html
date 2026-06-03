@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Пользователь #{{ user.id }} — Yaride Admin{% endblock %}
+{% block content %}
+<p><a href="/users">← К списку</a></p>
+<h1>{{ user.name }} <small>#{{ user.id }} · tg {{ user.tg_user_id }}</small></h1>
+<form method="post" action="/users/{{ user.id }}" class="edit">
+    <label>Имя<input type="text" name="name" value="{{ user.name }}" required></label>
+    <label>Роль
+        <select name="role">
+            {% for r in roles %}<option value="{{ r }}" {{ 'selected' if user.role == r }}>{{ r }}</option>{% endfor %}
+        </select>
+    </label>
+    <label>Мин. рейтинг пассажира (порог водителя)
+        <input type="text" name="min_passenger_rating" value="{{ user.min_passenger_rating if user.min_passenger_rating is not none else '' }}" placeholder="пусто = без ограничения">
+    </label>
+    <button type="submit">Сохранить</button>
+</form>
+
+{% if user.is_banned %}
+<form method="post" action="/users/{{ user.id }}/ban">
+    <input type="hidden" name="banned" value="0">
+    <button type="submit">Снять бан</button>
+</form>
+{% else %}
+<form method="post" action="/users/{{ user.id }}/ban" onsubmit="return confirm('Заблокировать доступ пользователя к боту?');">
+    <input type="hidden" name="banned" value="1">
+    <button type="submit" class="danger">Забанить</button>
+</form>
+{% endif %}
+{% endblock %}

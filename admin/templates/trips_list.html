@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Поездки — Yaride Admin{% endblock %}
+{% block content %}
+<h1>Поездки</h1>
+<form class="filters" method="get" action="/trips">
+    <select name="status">
+        <option value="">Все статусы</option>
+        {% for s in statuses %}<option value="{{ s }}" {{ 'selected' if f_status == s }}>{{ s }}</option>{% endfor %}
+    </select>
+    <input type="text" name="trip_date" placeholder="Дата YYYY-MM-DD" value="{{ f_date }}">
+    <button type="submit">Фильтр</button>
+</form>
+<table>
+    <thead><tr><th>#</th><th>Маршрут</th><th>Когда</th><th>Водитель</th><th>Цена</th><th>Места</th><th>Статус</th><th></th></tr></thead>
+    <tbody>
+    {% for t in trips %}
+        <tr>
+            <td>{{ t.id }}</td>
+            <td>{{ t.start_title }} → {{ t.end_title }}</td>
+            <td>{{ t.trip_date }} {{ t.departure_time }}</td>
+            <td>{{ t.driver_name }} ({{ t.driver_tg_user_id }})</td>
+            <td>{{ t.price_rub }} ₽</td>
+            <td>{{ t.seats_booked }}/{{ t.seats_total }}</td>
+            <td>{{ t.status }}</td>
+            <td><a class="btn" href="/trips/{{ t.id }}">Открыть</a></td>
+        </tr>
+    {% else %}
+        <tr><td colspan="8" class="empty">Нет поездок по фильтру.</td></tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

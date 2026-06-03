@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Аудит — Yaride Admin{% endblock %}
+{% block content %}
+<h1>Журнал действий</h1>
+<table>
+    <thead><tr><th>Время</th><th>Админ</th><th>Действие</th><th>Объект</th><th>ID</th><th>Детали</th></tr></thead>
+    <tbody>
+    {% for e in entries %}
+        <tr>
+            <td>{{ e.created_at }}</td>
+            <td>{{ e.admin_username }}</td>
+            <td>{{ e.action }}</td>
+            <td>{{ e.entity }}</td>
+            <td>{{ e.entity_id or '—' }}</td>
+            <td>{{ e.details or '—' }}</td>
+        </tr>
+    {% else %}
+        <tr><td colspan="6" class="empty">Записей нет.</td></tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

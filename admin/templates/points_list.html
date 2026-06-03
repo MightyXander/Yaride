@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Точки маршрута — Yaride Admin{% endblock %}
+{% block content %}
+<h1>Точки маршрута</h1>
+<p><a class="btn" href="/points/new">+ Новая точка</a></p>
+<table>
+    <thead><tr><th>#</th><th>Нас. пункт</th><th>Район</th><th>Подрайон</th><th>Название</th><th>Координаты</th><th></th></tr></thead>
+    <tbody>
+    {% for p in points %}
+        <tr>
+            <td>{{ p.id }}</td>
+            <td>{{ p.locality }}</td>
+            <td>{{ p.district or '—' }}</td>
+            <td>{{ p.admin_area or '—' }}</td>
+            <td>{{ p.title }}</td>
+            <td>{% if p.latitude is not none %}{{ '%.4f'|format(p.latitude) }}, {{ '%.4f'|format(p.longitude) }}{% else %}—{% endif %}</td>
+            <td><a class="btn" href="/points/{{ p.id }}">Открыть</a></td>
+        </tr>
+    {% else %}
+        <tr><td colspan="7" class="empty">Точек нет.</td></tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

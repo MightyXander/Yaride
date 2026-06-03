@@ -22,6 +22,7 @@ from app.handlers.rating import router as rating_router
 from app.handlers.registration import router as registration_router
 from app.handlers.trip_create import router as trip_create_router
 from app.handlers.trip_search import router as trip_search_router
+from app.middlewares import BanMiddleware
 from app.rating_worker import process_pending_rating_prompts
 
 logger = logging.getLogger(__name__)
@@ -41,6 +42,7 @@ router.include_router(fallback_router)
 
 
 async def run() -> None:
+    """Точка запуска бота: сборка зависимостей, регистрация роутеров, запуск polling и фоновых задач."""
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s [%(filename)s:%(lineno)d] %(message)s",
@@ -53,11 +55,19 @@ async def run() -> None:
     bot = Bot(token=settings.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher()
     attach_to_dispatcher(dp, container, flow=flow, navigation_flow=nav)
+    # Бан проверяем до любых хендлеров — забаненный апдейт дальше не проходит.
+    dp.update.outer_middleware(BanMiddleware(repo))
     dp.include_router(router)
 
+    # drop_pending_updates=True — сбрасываем накопившиеся апдейты при рестарте,
+    # чтобы не обрабатывать устаревшие callback'и с предыдущей сессии.
     await bot.delete_webhook(drop_pending_updates=True)
 
     async def rating_prompt_loop() -> None:
+        """Периодически рассылает запросы оценок после завершённых поездок.
+
+        Начальная задержка нужна, чтобы бот успел полностью инициализироваться перед первым обходом.
+        """
         try:
             await asyncio.sleep(settings.rating_prompt_initial_delay_s)
             while True:
@@ -77,6 +87,7 @@ async def run() -> None:
     background_tasks: set[asyncio.Task[None]] = set()
 
     def _spawn(coro):
+        """Запустить фоновую корутину с отслеживанием — чтобы корректно отменить при завершении."""
         task = asyncio.create_task(coro)
         background_tasks.add(task)
         task.add_done_callback(background_tasks.discard)

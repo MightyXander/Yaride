@@ -1,3 +1,9 @@
+"""SQLite-база данных: соединение, схема и линейные миграции по версии.
+
+Единственный файл *.db; одно постоянное соединение с RLock гарантирует безопасность
+при однопоточном asyncio-боте. WAL включён, чтобы read-транзакции не блокировали writes.
+"""
+
 from __future__ import annotations
 
 import sqlite3
@@ -12,17 +18,25 @@ from app.seeds import ROUTE_HIERARCHY
 # v2 — этап 1 (WAL); v3 — этап 2 (индексы);
 # v4 — этап 4: таблица anchor-сообщений flow;
 # v5 — этап 4: reply_aux_message_id в chat_anchors + drop bot_chat_messages (legacy cleanup_chat).
-CURRENT_SCHEMA_VERSION = 5
+# v6 — админка: users.is_banned, таблицы admin_users и admin_audit_log.
+CURRENT_SCHEMA_VERSION = 6
 SCHEMA_VERSION = CURRENT_SCHEMA_VERSION
 
 
 class Database:
+    """Обёртка над единственным SQLite-соединением с поддержкой транзакций и миграций."""
+
     def __init__(self, db_path: str) -> None:
         self.db_path = db_path
         self._conn: sqlite3.Connection | None = None
         self._lock = threading.RLock()
 
     def _ensure_connection(self) -> sqlite3.Connection:
+        """Создаёт соединение при первом обращении с оптимальными PRAGMA для single-process бота.
+
+        isolation_level=None — autocommit отключён; транзакции управляются явно через BEGIN/COMMIT,
+        что позволяет использовать BEGIN IMMEDIATE для исключения гонок при записи.
+        """
         if self._conn is None:
             conn = sqlite3.connect(self.db_path, check_same_thread=False)
             conn.row_factory = sqlite3.Row
@@ -46,6 +60,7 @@ class Database:
 
     @contextmanager
     def transaction(self) -> Iterator[sqlite3.Connection]:
+        """Стандартная транзакция (BEGIN DEFERRED). Использовать для read-операций и некритичных write."""
         with self._lock:
             conn = self._ensure_connection()
             conn.execute("BEGIN")
@@ -58,6 +73,11 @@ class Database:
 
     @contextmanager
     def immediate_transaction(self) -> Iterator[sqlite3.Connection]:
+        """Транзакция с захватом write-lock сразу (BEGIN IMMEDIATE).
+
+        Используется для критичных секций (бронирование мест, отмена поездки), чтобы исключить
+        ситуацию, когда два пользователя одновременно видят «1 свободное место» и оба бронируют.
+        """
         with self._lock:
             conn = self._ensure_connection()
             conn.execute("BEGIN IMMEDIATE")
@@ -69,6 +89,11 @@ class Database:
                 raise
 
     def init_schema(self) -> None:
+        """Создаёт схему с нуля или прогоняет линейные миграции до текущей версии.
+
+        Свежий файл .db получает полный bootstrap (версия → CURRENT_SCHEMA_VERSION).
+        Существующий файл мигрирует шаг за шагом, чтобы не терять данные пользователей.
+        """
         with self._lock:
             conn = self._ensure_connection()
             self._ensure_schema_version_table(conn)
@@ -122,6 +147,9 @@ class Database:
         if from_v == 4 and to_v == 5:
             self._migrate_v4_to_v5(conn)
             return
+        if from_v == 5 and to_v == 6:
+            self._migrate_v5_to_v6(conn)
+            return
         raise RuntimeError(f"No migration defined from v{from_v} to v{to_v}")
 
     def _migrate_v1_to_v2(self, conn: sqlite3.Connection) -> None:
@@ -142,6 +170,44 @@ class Database:
         if "reply_aux_message_id" not in cols:
             conn.execute("ALTER TABLE chat_anchors ADD COLUMN reply_aux_message_id INTEGER")
         conn.execute("DROP TABLE IF EXISTS bot_chat_messages")
+
+    def _migrate_v5_to_v6(self, conn: sqlite3.Connection) -> None:
+        """Админка: флаг бана у пользователя + таблицы учётных записей админов и журнала действий."""
+        self._ensure_users_is_banned(conn)
+        self._ensure_admin_tables(conn)
+
+    def _ensure_users_is_banned(self, conn: sqlite3.Connection) -> None:
+        """is_banned — мягкая блокировка: забаненный пользователь сохраняется (FK-связи целы), но не обслуживается ботом."""
+        cols = {row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
+        if not cols:
+            # Таблицы users ещё нет (порядок bootstrap или искусственная фикстура) — добавит её владелец схемы.
+            return
+        if "is_banned" not in cols:
+            conn.execute("ALTER TABLE users ADD COLUMN is_banned INTEGER NOT NULL DEFAULT 0")
+
+    def _ensure_admin_tables(self, conn: sqlite3.Connection) -> None:
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS admin_users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                last_login_at TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS admin_audit_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                admin_username TEXT NOT NULL,
+                action TEXT NOT NULL,
+                entity TEXT NOT NULL,
+                entity_id TEXT,
+                details TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_admin_audit_created ON admin_audit_log(created_at);
+            """
+        )
 
     def _ensure_chat_anchors_table(self, conn: sqlite3.Connection) -> None:
         conn.executescript(
@@ -249,6 +315,8 @@ class Database:
         self._fill_route_point_coordinates(conn)
         self._ensure_performance_indexes(conn)
         self._ensure_chat_anchors_table(conn)
+        self._ensure_users_is_banned(conn)
+        self._ensure_admin_tables(conn)
 
     def _migrate_schema(self, conn: sqlite3.Connection) -> None:
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(trips)").fetchall()}
@@ -364,6 +432,10 @@ class Database:
             conn.execute("ALTER TABLE trip_ratings ADD COLUMN review_text TEXT")
 
     def _migrate_route_hierarchy_simplify(self, conn: sqlite3.Connection) -> None:
+        """Объединяет мелкие подрайоны в один, чтобы не показывать пользователю слишком длинный список.
+
+        Применяется и при миграции v1→v2, и при bootstrap — идемпотентно (UPDATE не падает на уже обновлённых строках).
+        """
         cols = {row["name"] for row in conn.execute("PRAGMA table_info(route_points)").fetchall()}
         if not cols or "admin_area" not in cols:
             return
@@ -394,6 +466,11 @@ class Database:
             conn.execute("ALTER TABLE route_points ADD COLUMN longitude REAL")
 
     def _fill_route_point_coordinates(self, conn: sqlite3.Connection) -> None:
+        """Проставить координаты остановкам, у которых они ещё не заполнены.
+
+        Координаты берутся из geo_stops (справочник + jitter), а не из внешнего API,
+        чтобы не зависеть от сети при запуске и не терять данные при смене провайдера геокодинга.
+        """
         cols = {row["name"] for row in conn.execute("PRAGMA table_info(route_points)").fetchall()}
         if "latitude" not in cols or "longitude" not in cols:
             return
@@ -426,6 +503,11 @@ class Database:
             )
 
     def _seed_route_points(self, conn: sqlite3.Connection) -> None:
+        """Заполнить справочник остановок из статических данных seeds.py.
+
+        Если остановки уже есть, но поездок нет — перезаполнить: это позволяет обновлять
+        каталог остановок без ручного SQL при развёртывании свежей копии.
+        """
         existing = conn.execute("SELECT COUNT(*) AS cnt FROM route_points").fetchone()["cnt"]
         if existing > 0:
             trips_cnt = conn.execute("SELECT COUNT(*) AS cnt FROM trips").fetchone()["cnt"]

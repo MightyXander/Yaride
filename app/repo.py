@@ -1,3 +1,10 @@
+"""Репозитории данных: пользователи, маршруты, поездки, брони, избранное, рейтинги.
+
+Все репозитории — тонкий слой над SQLite: бизнес-правила (проверка мест, порог рейтинга,
+запрет самобронирования) живут здесь, а не в хендлерах, чтобы их можно было проверить
+без Telegram-контекста.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -19,6 +26,7 @@ class _BaseRepository:
 
     @staticmethod
     def _trip_start_dt(trip_date: str | None, departure_time: str | None) -> datetime | None:
+        """Строки из БД → datetime для сравнения с «сейчас»; None если данные отсутствуют или некорректны."""
         if not trip_date or not departure_time:
             return None
         try:
@@ -28,6 +36,7 @@ class _BaseRepository:
 
     @staticmethod
     def _get_internal_user_id(conn: sqlite3.Connection, tg_user_id: int) -> int:
+        """Получить внутренний id пользователя в рамках открытой транзакции; исключение если не зарегистрирован."""
         row = conn.execute("SELECT id FROM users WHERE tg_user_id = ?", (tg_user_id,)).fetchone()
         if not row:
             raise ValueError("Пользователь не зарегистрирован.")
@@ -87,6 +96,80 @@ class UserRepository(_BaseRepository):
             rows = conn.execute("SELECT tg_user_id FROM users ORDER BY id").fetchall()
         return [int(r["tg_user_id"]) for r in rows]
 
+    def get_user_by_id(self, user_id: int) -> sqlite3.Row | None:
+        """Поиск по внутреннему id (админка работает с id строки, а не с tg_user_id)."""
+        with self.db.transaction() as conn:
+            return conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+
+    def list_all_users(
+        self,
+        *,
+        query: str | None = None,
+        role: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[sqlite3.Row]:
+        """Список пользователей для админки с поиском по имени/username/tg_id и фильтром по роли."""
+        sql = "SELECT * FROM users WHERE 1=1"
+        params: list[object] = []
+        if query:
+            like = f"%{query.strip()}%"
+            sql += " AND (name LIKE ? OR COALESCE(username,'') LIKE ? OR CAST(tg_user_id AS TEXT) LIKE ?)"
+            params.extend([like, like, like])
+        if role:
+            sql += " AND role = ?"
+            params.append(role)
+        sql += " ORDER BY id DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+        with self.db.transaction() as conn:
+            return conn.execute(sql, tuple(params)).fetchall()
+
+    def count_users(self) -> int:
+        with self.db.transaction() as conn:
+            return int(conn.execute("SELECT COUNT(*) AS c FROM users").fetchone()["c"])
+
+    def admin_update_user(
+        self,
+        user_id: int,
+        *,
+        name: str,
+        role: str,
+        min_passenger_rating: float | None,
+    ) -> None:
+        """Админ-правка профиля. Роль водителя требует данных ВУ — иначе понижение до пассажира не делаем здесь."""
+        if role not in ("driver", "passenger"):
+            raise ValueError("Недопустимая роль.")
+        if not name.strip():
+            raise ValueError("Имя не может быть пустым.")
+        with self.db.transaction() as conn:
+            user = conn.execute("SELECT id, dl_series_number FROM users WHERE id = ?", (user_id,)).fetchone()
+            if not user:
+                raise ValueError("Пользователь не найден.")
+            if role == "driver" and not user["dl_series_number"]:
+                raise ValueError("Нельзя назначить роль водителя без данных ВУ в профиле.")
+            conn.execute(
+                "UPDATE users SET name = ?, role = ?, min_passenger_rating = ? WHERE id = ?",
+                (name.strip(), role, min_passenger_rating, user_id),
+            )
+
+    def set_banned(self, user_id: int, banned: bool) -> int:
+        """Мягкая блокировка/разблокировка. Возвращает tg_user_id для уведомления."""
+        with self.db.transaction() as conn:
+            user = conn.execute("SELECT tg_user_id FROM users WHERE id = ?", (user_id,)).fetchone()
+            if not user:
+                raise ValueError("Пользователь не найден.")
+            conn.execute("UPDATE users SET is_banned = ? WHERE id = ?", (1 if banned else 0, user_id))
+            return int(user["tg_user_id"])
+
+    def is_banned(self, tg_user_id: int) -> bool:
+        """Проверка бана по tg_user_id (для бота). Отсутствие колонки/строки трактуем как «не забанен»."""
+        with self.db.transaction() as conn:
+            row = conn.execute("SELECT is_banned FROM users WHERE tg_user_id = ?", (tg_user_id,)).fetchone()
+        if not row:
+            return False
+        keys = row.keys()
+        return "is_banned" in keys and bool(row["is_banned"])
+
     def set_driver_min_passenger_rating(self, tg_user_id: int, min_rating: float | None) -> None:
         """Минимальный средний рейтинг пассажира для автоматического принятия брони; None — без ограничения."""
         with self.db.transaction() as conn:
@@ -101,6 +184,7 @@ class UserRepository(_BaseRepository):
             )
 
     def switch_role(self, tg_user_id: int, new_role: str, for_date: str) -> tuple[bool, str]:
+        """Сменить роль пользователя. Водитель не может уйти в пассажиры, если на указанную дату есть открытые поездки."""
         if new_role not in ("driver", "passenger"):
             return False, "Недопустимая роль."
 
@@ -149,6 +233,7 @@ class RouteRepository(_BaseRepository):
             return conn.execute("SELECT * FROM route_points ORDER BY locality, district, title").fetchall()
 
     def list_localities(self) -> list[str]:
+        """Ярославль всегда первым — это основной город маршрутов."""
         with self.db.transaction() as conn:
             rows = conn.execute(
                 """
@@ -162,6 +247,7 @@ class RouteRepository(_BaseRepository):
         return localities
 
     def list_districts(self, locality: str) -> list[str]:
+        """Порядок районов берётся из ROUTE_HIERARCHY, а не из алфавита — чтобы совпадал с привычным разбиением города."""
         with self.db.transaction() as conn:
             rows = conn.execute(
                 """
@@ -190,6 +276,7 @@ class RouteRepository(_BaseRepository):
         return districts
 
     def list_admin_areas(self, locality: str, district: str) -> list[str]:
+        """Аналогично list_districts: приоритет ROUTE_HIERARCHY, затем алфавитный порядок."""
         with self.db.transaction() as conn:
             rows = conn.execute(
                 """
@@ -232,6 +319,70 @@ class RouteRepository(_BaseRepository):
         with self.db.transaction() as conn:
             return conn.execute("SELECT * FROM route_points WHERE id = ?", (point_id,)).fetchone()
 
+    def admin_create_point(
+        self,
+        *,
+        locality: str,
+        district: str,
+        admin_area: str,
+        title: str,
+        latitude: float | None = None,
+        longitude: float | None = None,
+    ) -> int:
+        """Создать точку маршрута (kind='stop')."""
+        if not locality.strip() or not title.strip():
+            raise ValueError("Населённый пункт и название остановки обязательны.")
+        with self.db.transaction() as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO route_points(locality, district, admin_area, title, kind, latitude, longitude)
+                VALUES (?, ?, ?, ?, 'stop', ?, ?)
+                """,
+                (locality.strip(), district.strip(), admin_area.strip(), title.strip(), latitude, longitude),
+            )
+            return int(cur.lastrowid)
+
+    def admin_update_point(
+        self,
+        point_id: int,
+        *,
+        locality: str,
+        district: str,
+        admin_area: str,
+        title: str,
+        latitude: float | None,
+        longitude: float | None,
+    ) -> None:
+        with self.db.transaction() as conn:
+            row = conn.execute("SELECT id FROM route_points WHERE id = ?", (point_id,)).fetchone()
+            if not row:
+                raise ValueError("Точка маршрута не найдена.")
+            conn.execute(
+                """
+                UPDATE route_points
+                SET locality = ?, district = ?, admin_area = ?, title = ?, latitude = ?, longitude = ?
+                WHERE id = ?
+                """,
+                (locality.strip(), district.strip(), admin_area.strip(), title.strip(), latitude, longitude, point_id),
+            )
+
+    def admin_delete_point(self, point_id: int) -> None:
+        """Удалить точку. Запрещено, если на неё ссылаются поездки (целостность FK)."""
+        with self.db.transaction() as conn:
+            row = conn.execute("SELECT id FROM route_points WHERE id = ?", (point_id,)).fetchone()
+            if not row:
+                raise ValueError("Точка маршрута не найдена.")
+            refs = conn.execute(
+                "SELECT COUNT(*) AS c FROM trips WHERE start_point_id = ? OR end_point_id = ?",
+                (point_id, point_id),
+            ).fetchone()
+            if int(refs["c"]) > 0:
+                raise ValueError("Нельзя удалить: на точку ссылаются поездки.")
+            conn.execute(
+                "DELETE FROM favorite_routes WHERE start_point_id = ? OR end_point_id = ?", (point_id, point_id)
+            )
+            conn.execute("DELETE FROM route_points WHERE id = ?", (point_id,))
+
     def nearest_stops_ranked(
         self,
         lat: float,
@@ -257,7 +408,10 @@ class RouteRepository(_BaseRepository):
         *,
         max_km: float = 150.0,
     ) -> tuple[str, float] | None:
-        """Ближайшая к точке остановка в базе → её населённый пункт и расстояние."""
+        """Возвращает ближайший населённый пункт к геопозиции пользователя и расстояние до него.
+
+        max_km ограничивает поиск — за пределами разумного радиуса маршрут не имеет смысла.
+        """
         with self.db.transaction() as conn:
             rows = conn.execute(
                 """
@@ -284,7 +438,11 @@ class RouteRepository(_BaseRepository):
         limit: int = 5,
         max_km: float = 80.0,
     ) -> list[tuple[sqlite3.Row, float]]:
-        """Все остановки с координатами, в пределах max_km, по возрастанию расстояния."""
+        """Топ-N ближайших остановок по всей БД (не в пределах одного района).
+
+        Используется при геоподсказке посадки: показываем конкретные остановки, когда
+        пользователь отправил своё местоположение.
+        """
         with self.db.transaction() as conn:
             rows = conn.execute(
                 """
@@ -446,6 +604,122 @@ class TripRepository(_BaseRepository):
                 """,
                 (driver_id,),
             ).fetchall()
+
+    def list_all_trips(
+        self,
+        *,
+        status: str | None = None,
+        trip_date: str | None = None,
+        driver_id: int | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[sqlite3.Row]:
+        """Список всех поездок для админки с фильтрами по статусу, дате и водителю (внутренний id)."""
+        sql = """
+            SELECT
+                t.id, t.driver_id, t.trip_date, t.departure_time, t.time_slot,
+                t.price_rub, t.seats_total, t.seats_booked, t.status, t.created_at,
+                sp.title AS start_title, ep.title AS end_title,
+                u.name AS driver_name, u.tg_user_id AS driver_tg_user_id
+            FROM trips t
+            JOIN route_points sp ON sp.id = t.start_point_id
+            JOIN route_points ep ON ep.id = t.end_point_id
+            JOIN users u ON u.id = t.driver_id
+            WHERE 1=1
+        """
+        params: list[object] = []
+        if status:
+            sql += " AND t.status = ?"
+            params.append(status)
+        if trip_date:
+            sql += " AND t.trip_date = ?"
+            params.append(trip_date)
+        if driver_id is not None:
+            sql += " AND t.driver_id = ?"
+            params.append(driver_id)
+        sql += " ORDER BY t.id DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+        with self.db.transaction() as conn:
+            return conn.execute(sql, tuple(params)).fetchall()
+
+    def get_trip_admin(self, trip_id: int) -> sqlite3.Row | None:
+        """Полная строка поездки по id (для экрана редактирования)."""
+        with self.db.transaction() as conn:
+            return conn.execute("SELECT * FROM trips WHERE id = ?", (trip_id,)).fetchone()
+
+    def admin_update_trip(
+        self,
+        trip_id: int,
+        *,
+        price_rub: int,
+        seats_total: int,
+        trip_date: str,
+        departure_time: str,
+        status: str,
+    ) -> None:
+        """Админ-правка поездки. Инвариант: seats_total не может быть меньше уже занятых мест."""
+        if status not in ("open", "cancelled", "completed"):
+            raise ValueError("Недопустимый статус поездки.")
+        if seats_total < 1:
+            raise ValueError("Мест должно быть не меньше одного.")
+        if price_rub < 0:
+            raise ValueError("Цена не может быть отрицательной.")
+        with self.db.immediate_transaction() as conn:
+            trip = conn.execute("SELECT seats_booked FROM trips WHERE id = ?", (trip_id,)).fetchone()
+            if not trip:
+                raise ValueError("Поездка не найдена.")
+            if seats_total < int(trip["seats_booked"]):
+                raise ValueError(f"Нельзя задать мест меньше уже забронированных ({int(trip['seats_booked'])}).")
+            conn.execute(
+                """
+                UPDATE trips
+                SET price_rub = ?, seats_total = ?, trip_date = ?, departure_time = ?,
+                    time_slot = ?, status = ?
+                WHERE id = ?
+                """,
+                (price_rub, seats_total, trip_date, departure_time, f"{trip_date} {departure_time}", status, trip_id),
+            )
+
+    def admin_cancel_trip(self, trip_id: int) -> list[int]:
+        """Принудительная отмена поездки администратором (без проверки владельца).
+
+        Отменяет активные брони и обнуляет занятость. Возвращает tg_user_id пассажиров для уведомлений.
+        """
+        with self.db.immediate_transaction() as conn:
+            trip = conn.execute("SELECT id, status FROM trips WHERE id = ?", (trip_id,)).fetchone()
+            if not trip:
+                raise ValueError("Поездка не найдена.")
+            rows = conn.execute(
+                """
+                SELECT u.tg_user_id
+                FROM bookings b
+                JOIN users u ON u.id = b.passenger_id
+                WHERE b.trip_id = ? AND b.status = 'active'
+                """,
+                (trip_id,),
+            ).fetchall()
+            notify_ids = [int(r["tg_user_id"]) for r in rows]
+            conn.execute(
+                """
+                UPDATE bookings
+                SET status = 'cancelled_by_driver',
+                    cancel_reason = 'Поездка отменена администратором',
+                    cancelled_at = CURRENT_TIMESTAMP
+                WHERE trip_id = ? AND status = 'active'
+                """,
+                (trip_id,),
+            )
+            conn.execute(
+                "UPDATE trips SET status = 'cancelled', seats_booked = 0 WHERE id = ?",
+                (trip_id,),
+            )
+            return notify_ids
+
+    def count_trips_by_status(self) -> dict[str, int]:
+        """Счётчики поездок по статусам для дашборда."""
+        with self.db.transaction() as conn:
+            rows = conn.execute("SELECT status, COUNT(*) AS c FROM trips GROUP BY status").fetchall()
+        return {str(r["status"]): int(r["c"]) for r in rows}
 
     def cancel_trip_by_driver(self, tg_driver_id: int, trip_id: int) -> list[int]:
         """Отменяет открытую поездку и активные брони. Возвращает tg_user_id пассажиров для уведомлений."""
@@ -717,6 +991,45 @@ class BookingRepository(_BaseRepository):
                 (trip_id, tg_driver_id),
             ).fetchall()
 
+    def list_all_bookings(
+        self,
+        *,
+        status: str | None = None,
+        trip_id: int | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[sqlite3.Row]:
+        """Список всех броней для админки с фильтрами по статусу и поездке."""
+        sql = """
+            SELECT
+                b.id, b.status, b.cancel_reason, b.created_at, b.cancelled_at,
+                b.trip_id, b.passenger_id,
+                p.name AS passenger_name, p.tg_user_id AS passenger_tg_user_id,
+                t.trip_date, t.departure_time, t.time_slot,
+                sp.title AS start_title, ep.title AS end_title
+            FROM bookings b
+            JOIN trips t ON t.id = b.trip_id
+            JOIN users p ON p.id = b.passenger_id
+            JOIN route_points sp ON sp.id = t.start_point_id
+            JOIN route_points ep ON ep.id = t.end_point_id
+            WHERE 1=1
+        """
+        params: list[object] = []
+        if status:
+            sql += " AND b.status = ?"
+            params.append(status)
+        if trip_id is not None:
+            sql += " AND b.trip_id = ?"
+            params.append(trip_id)
+        sql += " ORDER BY b.id DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+        with self.db.transaction() as conn:
+            return conn.execute(sql, tuple(params)).fetchall()
+
+    def count_active_bookings(self) -> int:
+        with self.db.transaction() as conn:
+            return int(conn.execute("SELECT COUNT(*) AS c FROM bookings WHERE status = 'active'").fetchone()["c"])
+
     def reject_booking_by_driver(self, tg_driver_id: int, booking_id: int) -> dict[str, object]:
         with self.db.immediate_transaction() as conn:
             booking = conn.execute(
@@ -861,6 +1174,10 @@ class FavoriteRouteRepository(_BaseRepository):
 
 class RatingRepository(_BaseRepository):
     def _refresh_user_rating(self, conn: sqlite3.Connection, rated_user_id: int) -> None:
+        """Пересчитывает денормализованные rating_avg/rating_count в рамках текущей транзакции.
+
+        Денормализация ускоряет read-запросы без JOIN на trip_ratings при каждом отображении профиля.
+        """
         row = conn.execute(
             "SELECT AVG(stars) AS a, COUNT(*) AS c FROM trip_ratings WHERE rated_user_id = ?",
             (rated_user_id,),
@@ -881,6 +1198,11 @@ class RatingRepository(_BaseRepository):
         *,
         review_text: str | None = None,
     ) -> None:
+        """Сохранить оценку и пересчитать рейтинг получателя.
+
+        Оценивать можно только участников конкретной поездки — это предотвращает накрутку.
+        Окно открывается через 3 ч после отправления, чтобы поездка успела завершиться.
+        """
         if stars < 1 or stars > 5:
             raise ValueError("Оценка от 1 до 5.")
         with self.db.transaction() as conn:
@@ -959,6 +1281,56 @@ class RatingRepository(_BaseRepository):
                 """,
                 (uid,),
             ).fetchall()
+
+    def list_all_ratings(
+        self,
+        *,
+        rated_user_id: int | None = None,
+        only_with_review: bool = False,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[sqlite3.Row]:
+        """Список всех оценок для модерации; фильтр по получателю и наличию текстового отзыва."""
+        sql = """
+            SELECT
+                tr.id, tr.trip_id, tr.stars, tr.review_text, tr.created_at,
+                tr.rater_user_id, tr.rated_user_id,
+                rater.name AS rater_name,
+                rated.name AS rated_name
+            FROM trip_ratings tr
+            JOIN users rater ON rater.id = tr.rater_user_id
+            JOIN users rated ON rated.id = tr.rated_user_id
+            WHERE 1=1
+        """
+        params: list[object] = []
+        if rated_user_id is not None:
+            sql += " AND tr.rated_user_id = ?"
+            params.append(rated_user_id)
+        if only_with_review:
+            sql += " AND tr.review_text IS NOT NULL AND trim(tr.review_text) != ''"
+        sql += " ORDER BY tr.id DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+        with self.db.transaction() as conn:
+            return conn.execute(sql, tuple(params)).fetchall()
+
+    def delete_rating(self, rating_id: int) -> int:
+        """Удалить оценку и пересчитать рейтинг получателя. Возвращает rated_user_id."""
+        with self.db.transaction() as conn:
+            row = conn.execute("SELECT rated_user_id FROM trip_ratings WHERE id = ?", (rating_id,)).fetchone()
+            if not row:
+                raise ValueError("Оценка не найдена.")
+            rated_id = int(row["rated_user_id"])
+            conn.execute("DELETE FROM trip_ratings WHERE id = ?", (rating_id,))
+            self._refresh_user_rating(conn, rated_id)
+            return rated_id
+
+    def set_review_text(self, rating_id: int, review_text: str | None) -> None:
+        """Модерация текста отзыва: скрыть (None) или заменить. Звёзды не трогаем."""
+        with self.db.transaction() as conn:
+            row = conn.execute("SELECT id FROM trip_ratings WHERE id = ?", (rating_id,)).fetchone()
+            if not row:
+                raise ValueError("Оценка не найдена.")
+            conn.execute("UPDATE trip_ratings SET review_text = ? WHERE id = ?", (review_text, rating_id))
 
     def mark_rating_prompt_sent(self, trip_id: int, rater_user_id: int, rated_user_id: int) -> None:
         with self.db.transaction() as conn:
@@ -1062,6 +1434,70 @@ class RatingRepository(_BaseRepository):
         return out
 
 
+class AdminRepository(_BaseRepository):
+    """Учётные записи администраторов и журнал их действий (таблицы admin_users, admin_audit_log)."""
+
+    def get_admin(self, username: str) -> sqlite3.Row | None:
+        with self.db.transaction() as conn:
+            return conn.execute("SELECT * FROM admin_users WHERE username = ?", (username,)).fetchone()
+
+    def list_admins(self) -> list[sqlite3.Row]:
+        with self.db.transaction() as conn:
+            return conn.execute(
+                "SELECT id, username, created_at, last_login_at FROM admin_users ORDER BY id"
+            ).fetchall()
+
+    def create_admin(self, username: str, password_hash: str) -> int:
+        if not username.strip():
+            raise ValueError("Логин администратора не может быть пустым.")
+        with self.db.transaction() as conn:
+            try:
+                cur = conn.execute(
+                    "INSERT INTO admin_users(username, password_hash) VALUES (?, ?)",
+                    (username.strip(), password_hash),
+                )
+            except sqlite3.IntegrityError as exc:
+                raise ValueError("Администратор с таким логином уже существует.") from exc
+            return int(cur.lastrowid)
+
+    def set_password_hash(self, username: str, password_hash: str) -> None:
+        with self.db.transaction() as conn:
+            conn.execute("UPDATE admin_users SET password_hash = ? WHERE username = ?", (password_hash, username))
+
+    def touch_last_login(self, username: str) -> None:
+        with self.db.transaction() as conn:
+            conn.execute(
+                "UPDATE admin_users SET last_login_at = CURRENT_TIMESTAMP WHERE username = ?",
+                (username,),
+            )
+
+    def add_audit(
+        self,
+        *,
+        admin_username: str,
+        action: str,
+        entity: str,
+        entity_id: str | None,
+        details: str | None,
+    ) -> None:
+        """Запись действия админа. Не должна ломать основную операцию — вызывается после успешной правки."""
+        with self.db.transaction() as conn:
+            conn.execute(
+                """
+                INSERT INTO admin_audit_log(admin_username, action, entity, entity_id, details)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (admin_username, action, entity, entity_id, details),
+            )
+
+    def list_audit(self, *, limit: int = 100, offset: int = 0) -> list[sqlite3.Row]:
+        with self.db.transaction() as conn:
+            return conn.execute(
+                "SELECT * FROM admin_audit_log ORDER BY id DESC LIMIT ? OFFSET ?",
+                (limit, offset),
+            ).fetchall()
+
+
 class Repo:
     """Тонкий контейнер под-репозиториев; вызовы идут через repo.users, repo.routes, …"""
 
@@ -1073,6 +1509,7 @@ class Repo:
         self.bookings = BookingRepository(db)
         self.favorites = FavoriteRouteRepository(db)
         self.ratings = RatingRepository(db)
+        self.admin = AdminRepository(db)
 
     @staticmethod
     def default_date() -> str:

@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Поездка #{{ trip.id }} — Yaride Admin{% endblock %}
+{% block content %}
+<p><a href="/trips">← К списку</a></p>
+<h1>Поездка #{{ trip.id }}</h1>
+<form method="post" action="/trips/{{ trip.id }}" class="edit">
+    <label>Цена, ₽<input type="number" name="price_rub" value="{{ trip.price_rub }}" min="0" required></label>
+    <label>Всего мест<input type="number" name="seats_total" value="{{ trip.seats_total }}" min="1" required>
+        <small>Занято сейчас: {{ trip.seats_booked }}</small></label>
+    <label>Дата<input type="text" name="trip_date" value="{{ trip.trip_date }}" placeholder="YYYY-MM-DD" required></label>
+    <label>Время<input type="text" name="departure_time" value="{{ trip.departure_time }}" placeholder="HH:MM" required></label>
+    <label>Статус
+        <select name="status">
+            {% for s in statuses %}<option value="{{ s }}" {{ 'selected' if trip.status == s }}>{{ s }}</option>{% endfor %}
+        </select>
+    </label>
+    <button type="submit">Сохранить</button>
+</form>
+
+<form method="post" action="/trips/{{ trip.id }}/cancel" onsubmit="return confirm('Отменить поездку и все активные брони? Пассажиры будут уведомлены.');">
+    <button type="submit" class="danger">Отменить поездку</button>
+</form>
+
+<h2>Брони этой поездки</h2>
+<table>
+    <thead><tr><th>#</th><th>Пассажир</th><th>Статус</th><th>Создана</th></tr></thead>
+    <tbody>
+    {% for b in bookings %}
+        <tr><td>{{ b.id }}</td><td>{{ b.passenger_name }} ({{ b.passenger_tg_user_id }})</td><td>{{ b.status }}</td><td>{{ b.created_at }}</td></tr>
+    {% else %}
+        <tr><td colspan="4" class="empty">Броней нет.</td></tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% endblock %}
