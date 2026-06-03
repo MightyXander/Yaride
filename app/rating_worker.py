@@ -13,10 +13,16 @@ from app.repo import Repo
 from app.ui import KeyboardFactory
 
 logger = logging.getLogger(__name__)
+# Экземпляр без настроек — только rating_stars_keyboard, которому настройки не нужны.
 _kb = KeyboardFactory()
 
 
 async def process_pending_rating_prompts(bot: Bot, repo: Repo) -> None:
+    """Отправить запросы оценок всем участникам завершившихся поездок, которые ещё не получили напоминание.
+
+    mark_rating_prompt_sent вызывается только после успешной отправки — если Telegram вернул ошибку,
+    пользователь получит напоминание в следующем цикле.
+    """
     prompts = repo.ratings.list_pending_rating_prompts()
     for p in prompts:
         markup = _kb.rating_stars_keyboard(p.trip_id, p.rated_tg_user_id)

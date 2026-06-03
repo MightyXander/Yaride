@@ -9,7 +9,6 @@ import sqlite3
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
-from aiogram.fsm.context import FSMContext
 from aiogram.types import (
     InlineKeyboardMarkup,
     Message,
@@ -22,11 +21,7 @@ from app.flow_mode_cfg import FLOW_MODE_CFG
 from app.navigation_flow import NavigationFlow
 from app.repo import Repo
 from app.states import Registration, TripCreate, TripSearch
-from app.trip_flow import (
-    GEO_USER_LOCATION_IDS_KEY,
-    TripFlowOrchestrator,
-    delete_tracked_user_geo_messages,
-)
+from app.trip_flow import TripFlowOrchestrator
 from app.yaride_calendar import trip_calendar
 
 logger = logging.getLogger(__name__)
@@ -36,20 +31,11 @@ STALE_SEARCH_FLOW = "Сессия поиска устарела. Начни за
 
 _c: Container | None = None
 
-FLOW_ORCHESTRATOR: TripFlowOrchestrator | None = None
-NAVIGATION_FLOW: NavigationFlow | None = None
-
-GEO_SUGGEST_MESSAGE_KEY = "geo_suggest_message_id"
-
 
 def _ctx() -> Container:
     if _c is None:
         raise RuntimeError("bot_support.configure() must run before using Telegram helpers.")
     return _c
-
-
-def _active_settings():
-    return _ctx().settings
 
 
 # ── клавиатуры (тонкие обёртки над KeyboardFactory) ────────────────────────
@@ -226,38 +212,9 @@ async def delete_user_message(message: Message) -> None:
     await chat_ui().delete_user_message(message)
 
 
-# ── гео-подсказки на шаге выбора отправления ───────────────────────────────
-
-
-async def _safe_delete_message(bot: Bot, chat_id: int, message_id: int) -> None:
-    try:
-        await bot.delete_message(chat_id, message_id)
-    except (TelegramBadRequest, TelegramForbiddenError):
-        pass
-
-
-async def _send_or_edit_geo_suggestions(
-    message: Message,
-    prev_mid: int | None,
-    text: str,
-    markup: InlineKeyboardMarkup,
-) -> int:
-    """Отдельное сообщение «Ближайшие остановки» (не anchor): edit при наличии, иначе send."""
-    bot = message.bot
-    chat_id = message.chat.id
-    if prev_mid is not None:
-        try:
-            await bot.edit_message_text(chat_id=chat_id, message_id=prev_mid, text=text, reply_markup=markup)
-            return prev_mid
-        except TelegramBadRequest:
-            await _safe_delete_message(bot, chat_id, prev_mid)
-    sent = await message.answer(text, reply_markup=markup)
-    return sent.message_id
-
-
 def configure(container: Container) -> tuple[TripFlowOrchestrator, NavigationFlow]:
     """Инициализирует модуль после сборки контейнера; возвращает flow и nav для диспетчера."""
-    global _c, FLOW_ORCHESTRATOR, NAVIGATION_FLOW
+    global _c
     _c = container
 
     orch = TripFlowOrchestrator(
@@ -285,66 +242,11 @@ def configure(container: Container) -> tuple[TripFlowOrchestrator, NavigationFlo
         trip_calendar_factory=trip_calendar,
         mode_cfg=FLOW_MODE_CFG,
     )
-    FLOW_ORCHESTRATOR = orch
-    NAVIGATION_FLOW = nav
     return orch, nav
 
 
-async def _handle_start_locality_geo(
-    message: Message,
-    state: FSMContext,
-    repo: Repo,
-    *,
-    mode: str,
-) -> None:
-    """Геолокация на шаге выбора отправления: показать топ остановок или перейти к району."""
-    assert FLOW_ORCHESTRATOR is not None
-    loc = message.location
-    if loc is None:
-        return
-    lat = float(loc.latitude)
-    lng = float(loc.longitude)
-    data = await state.get_data()
-    prev_mid_raw = data.get(GEO_SUGGEST_MESSAGE_KEY)
-    prev_mid: int | None = int(prev_mid_raw) if prev_mid_raw is not None else None
-
-    loc_ids = list(data.get(GEO_USER_LOCATION_IDS_KEY) or [])
-    loc_ids.append(message.message_id)
-    await state.update_data(**{GEO_USER_LOCATION_IDS_KEY: loc_ids})
-
-    st = _active_settings()
-    ranked = repo.routes.nearest_stops_global(lat, lng, limit=st.geo_suggest_limit, max_km=st.geo_suggest_max_km)
-    if ranked:
-        txt = (
-            "Ближайшие остановки посадки к твоей точке (км по прямой до точки остановки в каталоге, не время в пути). "
-            "Выбери кнопку ниже или продолжи выбор населённого пункта кнопками в сообщении выше."
-        )
-        mid = await _send_or_edit_geo_suggestions(
-            message, prev_mid, txt, geo_suggested_start_stops_keyboard(ranked, mode)
-        )
-        await state.update_data(**{GEO_SUGGEST_MESSAGE_KEY: mid})
-        return
-
-    if prev_mid is not None:
-        await _safe_delete_message(message.bot, message.chat.id, prev_mid)
-    await state.update_data(**{GEO_SUGGEST_MESSAGE_KEY: None})
-
-    resolved = repo.routes.nearest_locality_from_geo(lat, lng, max_km=st.locality_geo_max_km)
-    if not resolved:
-        try:
-            await message.answer(
-                "Не удалось подобрать остановки или город по координатам (слишком далеко или нет данных). "
-                "Выбери город из списка."
-            )
-        except Exception:
-            pass
-        return
-    locality, _dkm = resolved
-    await delete_tracked_user_geo_messages(message.bot, message.chat.id, state)
-    await FLOW_ORCHESTRATOR.apply_start_locality_from_geo(message, state, repo, mode, locality)
-
-
 def _env_bool(name: str, default: bool) -> bool:
+    """Прочитать булеву переменную окружения; None → дефолт, любая из ('1','true','yes','on') → True."""
     raw = os.getenv(name)
     if raw is None:
         return default
@@ -352,7 +254,12 @@ def _env_bool(name: str, default: bool) -> bool:
 
 
 async def push_main_menu_after_restart(bot: Bot, repo: Repo) -> None:
-    """После рестарта рассылаем главное меню, чтобы сменить reply-клавиатуру."""
+    """Разослать главное меню всем пользователям после рестарта бота.
+
+    После рестарта Telegram удаляет reply-клавиатуру из чата, поэтому необходимо
+    отправить новое сообщение с актуальной клавиатурой. TelegramForbiddenError и
+    аналогичные ошибки блокировки пропускаются — пользователь сам не хочет сообщений.
+    """
     if not _env_bool("YARIDE_PUSH_MENU_ON_START", True):
         logger.info("Меню после рестарта отключено (YARIDE_PUSH_MENU_ON_START)")
         return

@@ -6,37 +6,49 @@ from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
+from app.chat_ui import ChatUiService
+from app.navigation_flow import NavigationFlow
 from app.repo import Repo
+from app.ui import KeyboardFactory
 
 router = Router()
 
 
 @router.callback_query(F.data.startswith("back:"))
-async def go_back(callback: CallbackQuery, state: FSMContext, repo: Repo) -> None:
-    from app.bot_support import NAVIGATION_FLOW
-
-    assert NAVIGATION_FLOW is not None
-    await NAVIGATION_FLOW.handle_callback_back(callback, state, repo)
+async def go_back(
+    callback: CallbackQuery,
+    state: FSMContext,
+    repo: Repo,
+    nav: NavigationFlow,
+) -> None:
+    await nav.handle_callback_back(callback, state, repo)
 
 
 @router.message(F.text == "⬅ Назад")
-async def go_back_keyboard(message: Message, state: FSMContext, repo: Repo) -> None:
-    from app.bot_support import NAVIGATION_FLOW, delete_user_message
-
-    assert NAVIGATION_FLOW is not None
-    await delete_user_message(message)
-    await NAVIGATION_FLOW.handle_reply_back(message, state, repo)
+async def go_back_keyboard(
+    message: Message,
+    state: FSMContext,
+    repo: Repo,
+    nav: NavigationFlow,
+    chat_ui: ChatUiService,
+) -> None:
+    await chat_ui.delete_user_message(message)
+    await nav.handle_reply_back(message, state, repo)
 
 
 @router.message()
-async def fallback(message: Message, repo: Repo) -> None:
-    from app.bot_support import close_flow, delete_user_message, main_keyboard, send_post_flow_message
-
-    await delete_user_message(message)
-    await close_flow(chat_id=message.chat.id, bot=message.bot)
-    await send_post_flow_message(
+async def fallback(
+    message: Message,
+    repo: Repo,
+    chat_ui: ChatUiService,
+    keyboards: KeyboardFactory,
+) -> None:
+    await chat_ui.delete_user_message(message)
+    await chat_ui.close_flow(chat_id=message.chat.id, bot=message.bot)
+    u = repo.users.get_user(message.from_user.id)
+    await chat_ui.replace_with_notice(
         chat_id=message.chat.id,
         bot=message.bot,
         text="Используй кнопки меню или /start для регистрации.",
-        reply_keyboard=main_keyboard(repo, message.from_user.id),
+        reply_keyboard=keyboards.main_keyboard(is_driver=u is not None and u["role"] == "driver"),
     )

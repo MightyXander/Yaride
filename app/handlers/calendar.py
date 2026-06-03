@@ -10,9 +10,12 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery
 from aiogram_calendar import SimpleCalendarCallback
 
+from app.bot_support import STALE_CREATE_FLOW, STALE_SEARCH_FLOW
+from app.chat_ui import ChatUiService
 from app.formatting import format_trip_row
 from app.repo import Repo
 from app.states import TripCreate
+from app.ui import KeyboardFactory
 from app.yaride_calendar import trip_calendar
 
 router = Router()
@@ -24,18 +27,9 @@ async def process_calendar_selection(
     callback_data: SimpleCalendarCallback,
     state: FSMContext,
     repo: Repo,
+    chat_ui: ChatUiService,
+    keyboards: KeyboardFactory,
 ) -> None:
-    from app.bot_support import (
-        STALE_CREATE_FLOW,
-        STALE_SEARCH_FLOW,
-        close_flow,
-        main_keyboard,
-        send_post_flow_message,
-        time_keyboard,
-        trips_keyboard,
-        update_flow,
-    )
-
     selected, selected_date = await trip_calendar().process_selection(callback, callback_data)
     if not selected:
         return
@@ -49,16 +43,20 @@ async def process_calendar_selection(
     data = await state.get_data()
     target = data.get("calendar_target")
 
+    def _mk(tg_user_id: int):
+        u = repo.users.get_user(tg_user_id)
+        return keyboards.main_keyboard(is_driver=u is not None and u["role"] == "driver")
+
     if target == "search":
         if "start_point" not in data or "end_point" not in data:
             await state.clear()
             if callback.message:
-                await close_flow(chat_id=callback.message.chat.id, bot=callback.bot)
-                await send_post_flow_message(
+                await chat_ui.close_flow(chat_id=callback.message.chat.id, bot=callback.bot)
+                await chat_ui.replace_with_notice(
                     chat_id=callback.message.chat.id,
                     bot=callback.bot,
                     text=STALE_SEARCH_FLOW,
-                    reply_keyboard=main_keyboard(repo, callback.from_user.id),
+                    reply_keyboard=_mk(callback.from_user.id),
                 )
             await callback.answer()
             return
@@ -71,12 +69,12 @@ async def process_calendar_selection(
         await state.clear()
         if not trips:
             if callback.message:
-                await close_flow(chat_id=callback.message.chat.id, bot=callback.bot)
-                await send_post_flow_message(
+                await chat_ui.close_flow(chat_id=callback.message.chat.id, bot=callback.bot)
+                await chat_ui.replace_with_notice(
                     chat_id=callback.message.chat.id,
                     bot=callback.bot,
                     text="Подходящих поездок пока нет.",
-                    reply_keyboard=main_keyboard(repo, callback.from_user.id),
+                    reply_keyboard=_mk(callback.from_user.id),
                 )
             await callback.answer()
             return
@@ -89,12 +87,12 @@ async def process_calendar_selection(
                 f"{t['price_rub']} руб. | свободно {free}/{t['seats_total']}"
             )
         if callback.message:
-            await update_flow(
+            await chat_ui.update_flow(
                 chat_id=callback.message.chat.id,
                 bot=callback.bot,
                 flow_kind="search",
                 text="\n".join(text_lines),
-                inline_markup=trips_keyboard(trips),
+                inline_markup=keyboards.trips_keyboard(trips),
                 reply_keyboard=None,
             )
         await callback.answer()
@@ -104,24 +102,24 @@ async def process_calendar_selection(
         if "start_point" not in data or "end_point" not in data:
             await state.clear()
             if callback.message:
-                await close_flow(chat_id=callback.message.chat.id, bot=callback.bot)
-                await send_post_flow_message(
+                await chat_ui.close_flow(chat_id=callback.message.chat.id, bot=callback.bot)
+                await chat_ui.replace_with_notice(
                     chat_id=callback.message.chat.id,
                     bot=callback.bot,
                     text=STALE_CREATE_FLOW,
-                    reply_keyboard=main_keyboard(repo, callback.from_user.id),
+                    reply_keyboard=_mk(callback.from_user.id),
                 )
             await callback.answer()
             return
         await state.update_data(trip_date=iso_date)
         await state.set_state(TripCreate.departure_time)
         if callback.message:
-            await update_flow(
+            await chat_ui.update_flow(
                 chat_id=callback.message.chat.id,
                 bot=callback.bot,
                 flow_kind="create",
                 text="Выбери время отправления:",
-                inline_markup=time_keyboard("create_time"),
+                inline_markup=keyboards.time_keyboard("create_time"),
             )
         await callback.answer()
         return
@@ -131,24 +129,24 @@ async def process_calendar_selection(
         if not target_role:
             await state.clear()
             if callback.message:
-                await close_flow(chat_id=callback.message.chat.id, bot=callback.bot)
-                await send_post_flow_message(
+                await chat_ui.close_flow(chat_id=callback.message.chat.id, bot=callback.bot)
+                await chat_ui.replace_with_notice(
                     chat_id=callback.message.chat.id,
                     bot=callback.bot,
                     text="Сессия смены роли устарела. Нажми «Сменить роль» снова.",
-                    reply_keyboard=main_keyboard(repo, callback.from_user.id),
+                    reply_keyboard=_mk(callback.from_user.id),
                 )
             await callback.answer()
             return
         _, msg = repo.users.switch_role(callback.from_user.id, str(target_role), iso_date)
         await state.clear()
         if callback.message:
-            await close_flow(chat_id=callback.message.chat.id, bot=callback.bot)
-            await send_post_flow_message(
+            await chat_ui.close_flow(chat_id=callback.message.chat.id, bot=callback.bot)
+            await chat_ui.replace_with_notice(
                 chat_id=callback.message.chat.id,
                 bot=callback.bot,
                 text=msg,
-                reply_keyboard=main_keyboard(repo, callback.from_user.id),
+                reply_keyboard=_mk(callback.from_user.id),
             )
         await callback.answer()
         return

@@ -10,6 +10,8 @@ from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 
 from app.chat_ui import UNSET, ChatUiService
 
+# Порог, ниже которого несколько admin_area объединяются в одном списке остановок,
+# чтобы не добавлять лишний шаг выбора подрайона при маленьком количестве вариантов.
 DISTRICT_MERGED_STOPS_MAX = 15
 
 _GEO_SUGGEST_MESSAGE_KEY = "geo_suggest_message_id"
@@ -18,6 +20,11 @@ GEO_USER_LOCATION_IDS_KEY = "geo_user_location_message_ids"
 
 
 async def delete_tracked_user_geo_messages(bot, chat_id: int, state: FSMContext) -> None:
+    """Удалить сообщения геолокации пользователя, накопленные за шаг выбора остановки посадки.
+
+    Геосообщения остаются в чате пока пользователь выбирает — удаляем их при переходе на следующий шаг,
+    чтобы не засорять историю.
+    """
     data = await state.get_data()
     for mid in list(data.get(GEO_USER_LOCATION_IDS_KEY) or []):
         try:
@@ -28,6 +35,7 @@ async def delete_tracked_user_geo_messages(bot, chat_id: int, state: FSMContext)
 
 
 def stale_flow_hint(mode: str) -> str:
+    """Сообщение для callback.answer, когда данные FSM не совпадают с ожидаемыми (устаревшая кнопка)."""
     again = "«Найти поездки»" if mode == "search" else "«Создать поездку»"
     return f"Этот шаг устарел (или открыто старое сообщение с кнопками). Начни заново: {again}."
 
@@ -39,6 +47,11 @@ def _stop_matches_flow_selection(
     district: str,
     admin_area: str | None,
 ) -> bool:
+    """Проверить, что выбранная остановка соответствует параметрам FSM-шага.
+
+    Защита от подмены: пользователь не должен уйти со страницы одного района
+    и подтвердить остановку из другого через старый callback.
+    """
     if pt is None:
         return False
     if str(pt["locality"]) != locality:
@@ -101,6 +114,7 @@ class TripFlowOrchestrator:
         )
 
     async def begin(self, message: Message, state: FSMContext, repo: Any, mode: str) -> None:
+        """Начать новый flow: сбросить FSM, показать клавиатуру геолокации + список населённых пунктов."""
         cfg = self._cfg(mode)
         await state.clear()
         localities = repo.routes.list_localities()
@@ -477,6 +491,11 @@ class TripFlowOrchestrator:
         mode: str,
         start_point: int,
     ) -> None:
+        """Принять остановку посадки из геоподсказки (callback gxs:) и перейти к выбору конечной точки.
+
+        Отдельный метод от pick_start_stop, потому что геоподсказка приходит из плавающего сообщения,
+        а не из anchor-flow — нужно закрыть его и открыть заново.
+        """
         cfg = self._cfg(mode)
         pt = repo.routes.get_point(start_point)
         if pt is None or str(pt["kind"]) != "stop":

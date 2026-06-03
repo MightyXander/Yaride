@@ -1,3 +1,8 @@
+"""Фабрика всех клавиатур бота — единственное место, где собираются InlineKeyboardMarkup и ReplyKeyboardMarkup.
+
+Централизация гарантирует согласованность callback_data-префиксов и порядка кнопок во всех хендлерах.
+"""
+
 from __future__ import annotations
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
@@ -7,7 +12,7 @@ from app.config import Settings
 
 
 class KeyboardFactory:
-    """Factory for all bot keyboards."""
+    """Единственный источник истины для клавиатур: хендлеры вызывают методы фабрики, не строят markup вручную."""
 
     def __init__(
         self,
@@ -28,6 +33,7 @@ class KeyboardFactory:
 
     @staticmethod
     def _build_time_choices(step_minutes: int, hour_start: int, hour_end: int) -> list[str]:
+        """Предварительно строим список времён при инициализации — он одинаков для всех вызовов time_keyboard."""
         out: list[str] = []
         for hour in range(hour_start, hour_end):
             for minute in range(0, 60, step_minutes):
@@ -254,6 +260,14 @@ class KeyboardFactory:
         for s in range(1, 6):
             kb.button(text=str(s), callback_data=f"rate:{trip_id}:{rated_tg_user_id}:{s}")
         kb.adjust(5)
+        return kb.as_markup()
+
+    @staticmethod
+    def back_to_menu_keyboard() -> InlineKeyboardMarkup:
+        """Одиночная inline-кнопка «⬅ В главное меню» для экранов без собственных действий."""
+        kb = InlineKeyboardBuilder()
+        kb.button(text="⬅ В главное меню", callback_data="back:menu")
+        kb.adjust(1)
         return kb.as_markup()
 
     @staticmethod

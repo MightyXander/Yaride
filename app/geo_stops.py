@@ -100,6 +100,11 @@ COORDINATE_OVERRIDES: dict[tuple[str, str, str, str], tuple[float, float]] = {
 
 
 def _jitter_from_key(key: str, lat_scale: float, lng_scale: float) -> tuple[float, float]:
+    """Детерминированное смещение от центра района на основе хеша строкового ключа.
+
+    SHA-256 гарантирует, что одна и та же остановка всегда получает одно смещение —
+    без рандома при перезапуске, без коллизий у разных остановок одного района.
+    """
     h = hashlib.sha256(key.encode("utf-8")).digest()
     x = int.from_bytes(h[:4], "big") / (2**32) * 2 - 1
     y = int.from_bytes(h[4:8], "big") / (2**32) * 2 - 1
@@ -107,6 +112,7 @@ def _jitter_from_key(key: str, lat_scale: float, lng_scale: float) -> tuple[floa
 
 
 def lat_lng_for_stop(locality: str, district: str, admin_area: str, title: str) -> tuple[float, float]:
+    """Получить координаты остановки: override → каталог → центр района + jitter (по убыванию точности)."""
     okey = (locality, district, admin_area, title)
     if okey in COORDINATE_OVERRIDES:
         return COORDINATE_OVERRIDES[okey]

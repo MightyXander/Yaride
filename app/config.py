@@ -1,3 +1,9 @@
+"""Настройки бота: загрузка из переменных окружения (.env) с типизированными дефолтами.
+
+Все параметры собраны в одном dataclass, чтобы не читать os.getenv() в хендлерах
+и не дублировать парсинг по всему проекту.
+"""
+
 from __future__ import annotations
 
 import os
@@ -8,6 +14,8 @@ from dotenv import load_dotenv
 
 @dataclass(slots=True)
 class Settings:
+    """Конфигурация бота; передаётся через DI диспетчера, а не читается глобально из os.getenv."""
+
     bot_token: str
     db_path: str
     seats_choices: tuple[int, ...] = field(default_factory=lambda: (2, 3, 4))
@@ -23,6 +31,7 @@ class Settings:
 
 
 def _parse_int_tuple(raw: str, *, name: str) -> tuple[int, ...]:
+    """Разобрать строку «100,150,200» в кортеж целых; явное исключение при невалидных данных, а не молчаливый дефолт."""
     parts = [p.strip() for p in raw.split(",") if p.strip()]
     if not parts:
         raise RuntimeError(f"{name} is empty or invalid: {raw!r}")
@@ -63,6 +72,7 @@ def _env_int_tuple(name: str, default: tuple[int, ...]) -> tuple[int, ...]:
 
 
 def load_settings() -> Settings:
+    """Собрать Settings из переменных окружения; вызывается один раз при старте через build_container."""
     load_dotenv()
     token = os.getenv("BOT_TOKEN", "").strip()
     db_path = os.getenv("DB_PATH", "yaride.db").strip() or "yaride.db"

@@ -6,51 +6,54 @@ from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
+from app.chat_ui import ChatUiService
 from app.repo import Repo
 from app.states import TripSearch
+from app.ui import KeyboardFactory
+from app.yaride_calendar import trip_calendar
 
 router = Router()
 
 
-@router.message(F.text == "Избранные маршруты")
-async def favorite_routes_menu(message: Message, repo: Repo) -> None:
-    from app.bot_support import (
-        close_flow,
-        delete_user_message,
-        favorite_routes_keyboard,
-        main_keyboard,
-        open_flow,
-        send_post_flow_message,
-        with_back_button,
-    )
+def _mk(repo: Repo, keyboards: KeyboardFactory, tg_user_id: int):
+    u = repo.users.get_user(tg_user_id)
+    return keyboards.main_keyboard(is_driver=u is not None and u["role"] == "driver")
 
+
+@router.message(F.text == "Избранные маршруты")
+async def favorite_routes_menu(
+    message: Message,
+    repo: Repo,
+    chat_ui: ChatUiService,
+    keyboards: KeyboardFactory,
+) -> None:
     user = repo.users.get_user(message.from_user.id)
-    await delete_user_message(message)
+    await chat_ui.delete_user_message(message)
     if not user:
-        await close_flow(chat_id=message.chat.id, bot=message.bot)
-        await send_post_flow_message(
+        await chat_ui.close_flow(chat_id=message.chat.id, bot=message.bot)
+        await chat_ui.replace_with_notice(
             chat_id=message.chat.id,
             bot=message.bot,
             text="Сначала зарегистрируйся через /start.",
-            reply_keyboard=main_keyboard(repo, message.from_user.id),
+            reply_keyboard=_mk(repo, keyboards, message.from_user.id),
         )
         return
     rows = repo.favorites.list_favorites(message.from_user.id)
     if not rows:
-        await close_flow(chat_id=message.chat.id, bot=message.bot)
-        await send_post_flow_message(
+        await chat_ui.close_flow(chat_id=message.chat.id, bot=message.bot)
+        await chat_ui.replace_with_notice(
             chat_id=message.chat.id,
             bot=message.bot,
             text="Пока нет избранных маршрутов. После успешной брони можно добавить маршрут кнопкой под сообщением.",
-            reply_keyboard=main_keyboard(repo, message.from_user.id),
+            reply_keyboard=_mk(repo, keyboards, message.from_user.id),
         )
         return
-    await open_flow(
+    await chat_ui.open_flow(
         chat_id=message.chat.id,
         bot=message.bot,
         flow_kind="favorites",
         text="Избранные маршруты — нажми маршрут, затем выбери дату поездки:",
-        inline_markup=with_back_button(favorite_routes_keyboard(rows), target="menu"),
+        inline_markup=keyboards.with_back_button(keyboards.favorite_routes_keyboard(rows), target="menu"),
     )
 
 
@@ -69,10 +72,12 @@ async def fav_add(callback: CallbackQuery, repo: Repo) -> None:
 
 
 @router.callback_query(F.data.startswith("fav_route:"))
-async def favorite_route_pick_date(callback: CallbackQuery, state: FSMContext, repo: Repo) -> None:
-    from app.bot_support import update_flow
-    from app.yaride_calendar import trip_calendar
-
+async def favorite_route_pick_date(
+    callback: CallbackQuery,
+    state: FSMContext,
+    repo: Repo,
+    chat_ui: ChatUiService,
+) -> None:
     fid = int(callback.data.split(":")[1])
     row = repo.favorites.get_favorite_owned(callback.from_user.id, fid)
     if not row:
@@ -85,7 +90,7 @@ async def favorite_route_pick_date(callback: CallbackQuery, state: FSMContext, r
         calendar_target="search",
     )
     if callback.message:
-        await update_flow(
+        await chat_ui.update_flow(
             chat_id=callback.message.chat.id,
             bot=callback.bot,
             flow_kind="favorites",

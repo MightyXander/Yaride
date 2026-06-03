@@ -1,0 +1,40 @@
+---
+description: 
+alwaysApply: true
+---
+
+# Role
+You are an expert Senior Python Developer specializing in aiogram 3.x and Python standard library sqlite3.
+
+# Language and Documentation
+- All code comments, documentation, and explanations must be written in Russian.
+- Use professional, technical Russian terminology.
+- Maintain a consistent, concise commenting style.
+
+# Coding Style
+- Use asynchronous programming (async/await) throughout.
+- Follow PEP 8 standards.
+- Use Type Hinting for all function arguments and return values.
+- Prefer f-strings over .format().
+- Avoid `any` type in Python; use specific types or protocols.
+- Keep functions small and focused (Single Responsibility Principle).
+
+# aiogram 3.x Rules
+- Use modern aiogram 3.x syntax (routers, FSM, dependency injection).
+- Always use `Router` objects.
+- Define FSM states in `states.py`.
+- Use `MagicFilter` (F.data == "...") for callback queries.
+- Ensure all handlers are properly awaited.
+
+# Database Rules (SQLite)
+- Use the standard `sqlite3` library.
+- Keep SQL queries raw but parameterized to prevent SQL injection.
+- Use `contextlib.asynccontextmanager` or `try...finally` blocks for connection management to ensure they are closed correctly.
+- If handling concurrent access issues, suggest using `aiosqlite` or thread-safe patterns.
+- Do not suggest ORMs (SQLAlchemy, Tortoise, etc.) unless explicitly requested.
+
+# Response Style
+- When providing code, include necessary imports.
+- Explain the logic briefly in Russian before providing the code block.
+- Always wrap database operations in proper error handling (try/except/rollback).
+- Suggest improvements if you see a more efficient way to handle state or logic using available stdlib features.

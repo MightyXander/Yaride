@@ -7,6 +7,8 @@ from app.security.rating_input import normalize_review_text
 
 
 class RatingService:
+    """Тонкая служба между хендлером и RatingRepository: нормализует текст отзыва перед сохранением."""
+
     def __init__(self, repo: Repo) -> None:
         self._repo = repo
 
@@ -18,6 +20,7 @@ class RatingService:
         stars: int,
         raw_review: str | None,
     ) -> None:
+        """Нормализовать и сохранить оценку; бизнес-правила проверяются внутри репозитория."""
         review = normalize_review_text(raw_review)
         self._repo.ratings.submit_rating(
             rater_tg_user_id,

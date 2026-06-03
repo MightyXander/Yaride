@@ -7,94 +7,130 @@ from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
+from app.chat_ui import ChatUiService
+from app.config import Settings
+from app.geo_suggestion import handle_start_locality_geo
 from app.repo import Repo
 from app.states import TripSearch
+from app.trip_flow import TripFlowOrchestrator
+from app.ui import KeyboardFactory
 
 router = Router()
 
 
 @router.message(F.text.in_(["Найти поездки"]))
-async def find_trips_start(message: Message, state: FSMContext, repo: Repo) -> None:
-    from app.bot_support import (
-        FLOW_ORCHESTRATOR,
-        close_flow,
-        delete_user_message,
-        main_keyboard,
-        send_post_flow_message,
-    )
-
+async def find_trips_start(
+    message: Message,
+    state: FSMContext,
+    repo: Repo,
+    flow: TripFlowOrchestrator,
+    chat_ui: ChatUiService,
+    keyboards: KeyboardFactory,
+) -> None:
     user = repo.users.get_user(message.from_user.id)
-    await delete_user_message(message)
+    await chat_ui.delete_user_message(message)
     if not user:
-        await close_flow(chat_id=message.chat.id, bot=message.bot)
-        await send_post_flow_message(
+        await chat_ui.close_flow(chat_id=message.chat.id, bot=message.bot)
+        u = repo.users.get_user(message.from_user.id)
+        await chat_ui.replace_with_notice(
             chat_id=message.chat.id,
             bot=message.bot,
             text="Сначала зарегистрируйся через /start.",
-            reply_keyboard=main_keyboard(repo, message.from_user.id),
+            reply_keyboard=keyboards.main_keyboard(is_driver=u is not None and u["role"] == "driver"),
         )
         return
-    await FLOW_ORCHESTRATOR.begin(message, state, repo, mode="search")
+    await flow.begin(message, state, repo, mode="search")
 
 
 @router.callback_query(F.data.startswith("Sfl:"))
-async def search_pick_start_locality(callback: CallbackQuery, state: FSMContext, repo: Repo) -> None:
-    from app.bot_support import FLOW_ORCHESTRATOR
-
-    await FLOW_ORCHESTRATOR.pick_locality(callback, state, repo, mode="search", is_start=True)
+async def search_pick_start_locality(
+    callback: CallbackQuery,
+    state: FSMContext,
+    repo: Repo,
+    flow: TripFlowOrchestrator,
+) -> None:
+    await flow.pick_locality(callback, state, repo, mode="search", is_start=True)
 
 
 @router.callback_query(F.data.startswith("Sfd:"))
-async def search_pick_start_district(callback: CallbackQuery, state: FSMContext, repo: Repo) -> None:
-    from app.bot_support import FLOW_ORCHESTRATOR
-
-    await FLOW_ORCHESTRATOR.pick_district(callback, state, repo, mode="search", is_start=True)
+async def search_pick_start_district(
+    callback: CallbackQuery,
+    state: FSMContext,
+    repo: Repo,
+    flow: TripFlowOrchestrator,
+) -> None:
+    await flow.pick_district(callback, state, repo, mode="search", is_start=True)
 
 
 @router.callback_query(F.data.startswith("Sfa:"))
-async def search_pick_start_admin(callback: CallbackQuery, state: FSMContext, repo: Repo) -> None:
-    from app.bot_support import FLOW_ORCHESTRATOR
-
-    await FLOW_ORCHESTRATOR.pick_admin(callback, state, repo, mode="search", is_start=True)
+async def search_pick_start_admin(
+    callback: CallbackQuery,
+    state: FSMContext,
+    repo: Repo,
+    flow: TripFlowOrchestrator,
+) -> None:
+    await flow.pick_admin(callback, state, repo, mode="search", is_start=True)
 
 
 @router.callback_query(F.data.startswith("Sfp:"))
-async def search_pick_start_stop(callback: CallbackQuery, state: FSMContext, repo: Repo) -> None:
-    from app.bot_support import FLOW_ORCHESTRATOR
-
-    await FLOW_ORCHESTRATOR.pick_start_stop(callback, state, repo, mode="search")
+async def search_pick_start_stop(
+    callback: CallbackQuery,
+    state: FSMContext,
+    repo: Repo,
+    flow: TripFlowOrchestrator,
+) -> None:
+    await flow.pick_start_stop(callback, state, repo, mode="search")
 
 
 @router.callback_query(F.data.startswith("Stl:"))
-async def search_pick_end_locality(callback: CallbackQuery, state: FSMContext, repo: Repo) -> None:
-    from app.bot_support import FLOW_ORCHESTRATOR
-
-    await FLOW_ORCHESTRATOR.pick_locality(callback, state, repo, mode="search", is_start=False)
+async def search_pick_end_locality(
+    callback: CallbackQuery,
+    state: FSMContext,
+    repo: Repo,
+    flow: TripFlowOrchestrator,
+) -> None:
+    await flow.pick_locality(callback, state, repo, mode="search", is_start=False)
 
 
 @router.callback_query(F.data.startswith("Std:"))
-async def search_pick_end_district(callback: CallbackQuery, state: FSMContext, repo: Repo) -> None:
-    from app.bot_support import FLOW_ORCHESTRATOR
-
-    await FLOW_ORCHESTRATOR.pick_district(callback, state, repo, mode="search", is_start=False)
+async def search_pick_end_district(
+    callback: CallbackQuery,
+    state: FSMContext,
+    repo: Repo,
+    flow: TripFlowOrchestrator,
+) -> None:
+    await flow.pick_district(callback, state, repo, mode="search", is_start=False)
 
 
 @router.callback_query(F.data.startswith("Sta:"))
-async def search_pick_end_admin(callback: CallbackQuery, state: FSMContext, repo: Repo) -> None:
-    from app.bot_support import FLOW_ORCHESTRATOR
-
-    await FLOW_ORCHESTRATOR.pick_admin(callback, state, repo, mode="search", is_start=False)
+async def search_pick_end_admin(
+    callback: CallbackQuery,
+    state: FSMContext,
+    repo: Repo,
+    flow: TripFlowOrchestrator,
+) -> None:
+    await flow.pick_admin(callback, state, repo, mode="search", is_start=False)
 
 
 @router.callback_query(F.data.startswith("Stp:"))
-async def search_pick_end_stop(callback: CallbackQuery, state: FSMContext, repo: Repo) -> None:
-    from app.bot_support import FLOW_ORCHESTRATOR
-
-    await FLOW_ORCHESTRATOR.pick_end_stop(callback, state, repo, mode="search")
+async def search_pick_end_stop(
+    callback: CallbackQuery,
+    state: FSMContext,
+    repo: Repo,
+    flow: TripFlowOrchestrator,
+) -> None:
+    await flow.pick_end_stop(callback, state, repo, mode="search")
 
 
 @router.message(StateFilter(TripSearch.start_locality), F.location)
-async def search_start_locality_geo(message: Message, state: FSMContext, repo: Repo) -> None:
-    from app.bot_support import _handle_start_locality_geo
-
-    await _handle_start_locality_geo(message, state, repo, mode="search")
+async def search_start_locality_geo(
+    message: Message,
+    state: FSMContext,
+    repo: Repo,
+    flow: TripFlowOrchestrator,
+    settings: Settings,
+    keyboards: KeyboardFactory,
+) -> None:
+    await handle_start_locality_geo(
+        message, state, repo, mode="search", flow=flow, settings=settings, keyboards=keyboards
+    )

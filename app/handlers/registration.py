@@ -9,37 +9,48 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
+from app.chat_ui import ChatUiService
 from app.driver_license import normalize_dl_series_number, parse_expiry_date, validate_license_not_expired
 from app.repo import Repo
 from app.states import Registration
+from app.ui import KeyboardFactory
 
 router = Router()
 
 FLOW_KIND = "registration"
 
 
-@router.message(Command("start"))
-async def start(message: Message, state: FSMContext, repo: Repo) -> None:
-    from app.bot_support import close_flow, delete_user_message, open_flow, role_keyboard
+def _mk(repo: Repo, keyboards: KeyboardFactory, tg_user_id: int):
+    u = repo.users.get_user(tg_user_id)
+    return keyboards.main_keyboard(is_driver=u is not None and u["role"] == "driver")
 
+
+@router.message(Command("start"))
+async def start(
+    message: Message,
+    state: FSMContext,
+    repo: Repo,
+    chat_ui: ChatUiService,
+    keyboards: KeyboardFactory,
+) -> None:
     await state.clear()
     user = repo.users.get_user(message.from_user.id)
-    await delete_user_message(message)
+    await chat_ui.delete_user_message(message)
     if user:
         name = str(user["name"] or "").strip() or (message.from_user.first_name or "друг")
         await state.update_data(name=name)
         await state.set_state(Registration.waiting_role)
-        await close_flow(chat_id=message.chat.id, bot=message.bot)
-        await open_flow(
+        await chat_ui.close_flow(chat_id=message.chat.id, bot=message.bot)
+        await chat_ui.open_flow(
             chat_id=message.chat.id,
             bot=message.bot,
             flow_kind=FLOW_KIND,
             text=f"<b>{html.escape(name)}</b>, давно не виделись. Выбери роль:",
-            inline_markup=role_keyboard(),
+            inline_markup=keyboards.role_keyboard(),
         )
         return
     await state.set_state(Registration.waiting_name)
-    await open_flow(
+    await chat_ui.open_flow(
         chat_id=message.chat.id,
         bot=message.bot,
         flow_kind=FLOW_KIND,
@@ -48,13 +59,16 @@ async def start(message: Message, state: FSMContext, repo: Repo) -> None:
 
 
 @router.message(Registration.waiting_name)
-async def reg_name(message: Message, state: FSMContext) -> None:
-    from app.bot_support import delete_user_message, role_keyboard, update_flow
-
+async def reg_name(
+    message: Message,
+    state: FSMContext,
+    chat_ui: ChatUiService,
+    keyboards: KeyboardFactory,
+) -> None:
     name = (message.text or "").strip()
-    await delete_user_message(message)
+    await chat_ui.delete_user_message(message)
     if len(name) < 2:
-        await update_flow(
+        await chat_ui.update_flow(
             chat_id=message.chat.id,
             bot=message.bot,
             flow_kind=FLOW_KIND,
@@ -63,31 +77,35 @@ async def reg_name(message: Message, state: FSMContext) -> None:
         return
     await state.update_data(name=name)
     await state.set_state(Registration.waiting_role)
-    await update_flow(
+    await chat_ui.update_flow(
         chat_id=message.chat.id,
         bot=message.bot,
         flow_kind=FLOW_KIND,
         text="Выбери роль:",
-        inline_markup=role_keyboard(),
+        inline_markup=keyboards.role_keyboard(),
     )
 
 
 @router.callback_query(F.data.startswith("set_role:"))
-async def reg_role(callback: CallbackQuery, state: FSMContext, repo: Repo) -> None:
-    from app.bot_support import close_flow, flow_keyboard, main_keyboard, send_post_flow_message, update_flow
-
+async def reg_role(
+    callback: CallbackQuery,
+    state: FSMContext,
+    repo: Repo,
+    chat_ui: ChatUiService,
+    keyboards: KeyboardFactory,
+) -> None:
     role = callback.data.split(":", 1)[1]
     data = await state.get_data()
     name = data.get("name")
     if not name:
         await state.clear()
         if callback.message:
-            await close_flow(chat_id=callback.message.chat.id, bot=callback.bot)
-            await send_post_flow_message(
+            await chat_ui.close_flow(chat_id=callback.message.chat.id, bot=callback.bot)
+            await chat_ui.replace_with_notice(
                 chat_id=callback.message.chat.id,
                 bot=callback.bot,
                 text="Сессия регистрации устарела. Нажми /start.",
-                reply_keyboard=main_keyboard(repo, callback.from_user.id),
+                reply_keyboard=_mk(repo, keyboards, callback.from_user.id),
             )
         await callback.answer()
         return
@@ -95,19 +113,19 @@ async def reg_role(callback: CallbackQuery, state: FSMContext, repo: Repo) -> No
         repo.users.upsert_user(callback.from_user.id, str(name), callback.from_user.username, "passenger")
         await state.clear()
         if callback.message:
-            await close_flow(chat_id=callback.message.chat.id, bot=callback.bot)
-            await send_post_flow_message(
+            await chat_ui.close_flow(chat_id=callback.message.chat.id, bot=callback.bot)
+            await chat_ui.replace_with_notice(
                 chat_id=callback.message.chat.id,
                 bot=callback.bot,
                 text="Профиль сохранён.\nУсловия сервиса: плата покрывает бензин и износ, сервис не является такси.",
-                reply_keyboard=main_keyboard(repo, callback.from_user.id),
+                reply_keyboard=_mk(repo, keyboards, callback.from_user.id),
             )
         await callback.answer("Роль сохранена")
         return
     if role == "driver":
         await state.set_state(Registration.waiting_dl_series)
         if callback.message:
-            await update_flow(
+            await chat_ui.update_flow(
                 chat_id=callback.message.chat.id,
                 bot=callback.bot,
                 flow_kind=FLOW_KIND,
@@ -116,7 +134,7 @@ async def reg_role(callback: CallbackQuery, state: FSMContext, repo: Repo) -> No
                     "Введи серию и номер как на пластиковом бланке: 4 цифры, 2 буквы "
                     "(А, В, Е, К, М, Н, О, Р, С, Т, У, Х), 6 цифр. Можно с пробелами — например 9916 АВ 123456."
                 ),
-                reply_keyboard=flow_keyboard(),
+                reply_keyboard=keyboards.flow_keyboard(),
             )
         await callback.answer()
         return
@@ -124,85 +142,85 @@ async def reg_role(callback: CallbackQuery, state: FSMContext, repo: Repo) -> No
 
 
 @router.message(Registration.waiting_dl_series)
-async def reg_dl_series(message: Message, state: FSMContext) -> None:
-    from app.bot_support import delete_user_message, flow_keyboard, update_flow
-
+async def reg_dl_series(
+    message: Message,
+    state: FSMContext,
+    chat_ui: ChatUiService,
+    keyboards: KeyboardFactory,
+) -> None:
     ok, normalized, err = normalize_dl_series_number(message.text or "")
-    await delete_user_message(message)
+    await chat_ui.delete_user_message(message)
     if not ok:
-        await update_flow(
+        await chat_ui.update_flow(
             chat_id=message.chat.id,
             bot=message.bot,
             flow_kind=FLOW_KIND,
             text=err or "Некорректные данные ВУ.",
-            reply_keyboard=flow_keyboard(),
+            reply_keyboard=keyboards.flow_keyboard(),
         )
         return
     await state.update_data(dl_series_number=normalized)
     await state.set_state(Registration.waiting_dl_expiry)
-    await update_flow(
+    await chat_ui.update_flow(
         chat_id=message.chat.id,
         bot=message.bot,
         flow_kind=FLOW_KIND,
         text="Теперь введи дату окончания срока действия ВУ (поле «3b») в формате ДД.ММ.ГГГГ.",
-        reply_keyboard=flow_keyboard(),
+        reply_keyboard=keyboards.flow_keyboard(),
     )
 
 
 @router.message(Registration.waiting_dl_expiry)
-async def reg_dl_expiry(message: Message, state: FSMContext, repo: Repo) -> None:
-    from app.bot_support import (
-        close_flow,
-        delete_user_message,
-        flow_keyboard,
-        main_keyboard,
-        send_post_flow_message,
-        update_flow,
-    )
-
+async def reg_dl_expiry(
+    message: Message,
+    state: FSMContext,
+    repo: Repo,
+    chat_ui: ChatUiService,
+    keyboards: KeyboardFactory,
+) -> None:
     raw = message.text or ""
-    await delete_user_message(message)
+    await chat_ui.delete_user_message(message)
     ok, expiry_date, err = parse_expiry_date(raw)
     if not ok or not expiry_date:
-        await update_flow(
+        await chat_ui.update_flow(
             chat_id=message.chat.id,
             bot=message.bot,
             flow_kind=FLOW_KIND,
             text=err or "Некорректная дата.",
-            reply_keyboard=flow_keyboard(),
+            reply_keyboard=keyboards.flow_keyboard(),
         )
         return
     ok_exp, msg_exp = validate_license_not_expired(expiry_date)
     if not ok_exp:
-        await update_flow(
+        await chat_ui.update_flow(
             chat_id=message.chat.id,
             bot=message.bot,
             flow_kind=FLOW_KIND,
             text=msg_exp or "ВУ недействительно.",
-            reply_keyboard=flow_keyboard(),
+            reply_keyboard=keyboards.flow_keyboard(),
         )
         return
     data = await state.get_data()
     name = data.get("name")
     if not name:
         await state.clear()
-        await close_flow(chat_id=message.chat.id, bot=message.bot)
-        await send_post_flow_message(
+        await chat_ui.close_flow(chat_id=message.chat.id, bot=message.bot)
+        await chat_ui.replace_with_notice(
             chat_id=message.chat.id,
             bot=message.bot,
             text="Сессия регистрации устарела. Нажми /start.",
-            reply_keyboard=main_keyboard(repo, message.from_user.id),
+            reply_keyboard=_mk(repo, keyboards, message.from_user.id),
         )
         return
     dl_series = data.get("dl_series_number")
     if not dl_series:
         await state.set_state(Registration.waiting_dl_series)
-        await update_flow(
+        await chat_ui.update_flow(
             chat_id=message.chat.id,
             bot=message.bot,
             flow_kind=FLOW_KIND,
             text="Сначала введи серию и номер ВУ.",
-            reply_keyboard=flow_keyboard(),
+            reply_keyboard=keyboards.flow_keyboard(),
         )
         return
     try:
@@ -215,22 +233,22 @@ async def reg_dl_expiry(message: Message, state: FSMContext, repo: Repo) -> None
             dl_valid_until=expiry_date.isoformat(),
         )
     except ValueError as exc:
-        await update_flow(
+        await chat_ui.update_flow(
             chat_id=message.chat.id,
             bot=message.bot,
             flow_kind=FLOW_KIND,
             text=str(exc),
-            reply_keyboard=flow_keyboard(),
+            reply_keyboard=keyboards.flow_keyboard(),
         )
         return
     await state.clear()
-    await close_flow(chat_id=message.chat.id, bot=message.bot)
-    await send_post_flow_message(
+    await chat_ui.close_flow(chat_id=message.chat.id, bot=message.bot)
+    await chat_ui.replace_with_notice(
         chat_id=message.chat.id,
         bot=message.bot,
         text=(
             "Профиль водителя сохранён: формат ВУ проверен локально.\n"
             "Условия сервиса: плата покрывает бензин и износ, сервис не является такси."
         ),
-        reply_keyboard=main_keyboard(repo, message.from_user.id),
+        reply_keyboard=_mk(repo, keyboards, message.from_user.id),
     )

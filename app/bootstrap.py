@@ -17,6 +17,8 @@ from app.ui import KeyboardFactory
 
 @dataclass(frozen=True)
 class Container:
+    """Неизменяемый контейнер DI-зависимостей: создаётся один раз при старте, передаётся во все компоненты."""
+
     settings: Settings
     db: Database
     repo: Repo
@@ -25,6 +27,11 @@ class Container:
 
 
 def build_container() -> Container:
+    """Создать и инициализировать все зависимости бота.
+
+    main_keyboard_provider замыкается на repo, а не принимает его явно, чтобы
+    ChatUiService не знал о деталях UserRepository (DIP).
+    """
     settings = load_settings()
     db = Database(settings.db_path)
     db.init_schema()

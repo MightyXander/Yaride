@@ -7,15 +7,18 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery
 
 from app.repo import Repo
+from app.trip_flow import TripFlowOrchestrator
 
 router = Router()
 
 
 @router.callback_query(F.data.startswith("gxs:"))
-async def geo_pick_suggested_start_stop(callback: CallbackQuery, state: FSMContext, repo: Repo) -> None:
-    from app.bot_support import FLOW_ORCHESTRATOR
-
-    assert FLOW_ORCHESTRATOR is not None
+async def geo_pick_suggested_start_stop(
+    callback: CallbackQuery,
+    state: FSMContext,
+    repo: Repo,
+    flow: TripFlowOrchestrator,
+) -> None:
     cur = await state.get_state()
     if cur is None or not str(cur).endswith("start_locality"):
         await callback.answer("Шаг устарел. Начни выбор маршрута заново.", show_alert=True)
@@ -33,4 +36,4 @@ async def geo_pick_suggested_start_stop(callback: CallbackQuery, state: FSMConte
     except ValueError:
         await callback.answer()
         return
-    await FLOW_ORCHESTRATOR.transition_geo_pick_start_stop(callback, state, repo, mode, pid)
+    await flow.transition_geo_pick_start_stop(callback, state, repo, mode, pid)

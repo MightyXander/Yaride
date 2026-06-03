@@ -1,3 +1,9 @@
+"""Форматирование данных поездок для отображения пользователю.
+
+Отдельный модуль, чтобы логика форматирования не дублировалась в хендлерах
+и могла быть покрыта тестами без Telegram-контекста.
+"""
+
 from __future__ import annotations
 
 from datetime import date
@@ -14,6 +20,7 @@ _WEEKDAYS_RU = (
 
 
 def _parse_date_from_string(raw: str | None) -> date | None:
+    """Допускает формат с временным компонентом (ISO 8601 со временем) и пробелом — из-за разных источников БД."""
     if raw is None:
         return None
     s = str(raw).strip()
@@ -34,6 +41,7 @@ def _parse_date_from_string(raw: str | None) -> date | None:
 
 
 def _time_from_departure_or_slot(departure_time: str | None, time_slot: str | None) -> str | None:
+    """departure_time — приоритетное поле; time_slot используется как запасной источник (обратная совместимость)."""
     if departure_time and str(departure_time).strip():
         return str(departure_time).strip()
     if not time_slot or not str(time_slot).strip():

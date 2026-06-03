@@ -51,6 +51,10 @@ class NavigationFlow:
         return self.trip_search_state, self.trip_create_state
 
     def _parse_route_target(self, target: str) -> tuple[str, str] | None:
+        """Разобрать строку вида 'search_start_stop' → ('search', 'start_stop').
+
+        Формат callback_data кнопки «Назад» для шагов маршрута — {mode}_{step}.
+        """
         for mode in ("search", "create"):
             prefix = f"{mode}_"
             if target.startswith(prefix):
@@ -216,12 +220,17 @@ class NavigationFlow:
             )
 
     async def _go_to_main_menu(self, *, chat_id: int, bot: Any, repo: Any, tg_user_id: int) -> None:
+        """Закрыть текущий flow и вернуть пользователя в главное меню через notice-сообщение."""
         await self._chat_ui.close_flow(chat_id=chat_id, bot=bot)
         await self._chat_ui.replace_with_notice(
             chat_id=chat_id, bot=bot, text="Главное меню", reply_keyboard=self._main_keyboard(repo, tg_user_id)
         )
 
     async def handle_callback_back(self, callback: Any, state: Any, repo: Any) -> None:
+        """Обработать callback back:{target}: перейти на предыдущий шаг flow или в главное меню.
+
+        Единая точка обработки кнопок «⬅ Назад» для всех inline-шагов.
+        """
         target = callback.data.split(":", 1)[1]
 
         if target == "menu":
@@ -304,6 +313,7 @@ class NavigationFlow:
         await callback.answer("Нечего откатывать", show_alert=True)
 
     async def handle_reply_back(self, message: Any, state: Any, repo: Any) -> None:
+        """Обработать нажатие reply-кнопки «⬅ Назад»: определить текущий шаг FSM и откатиться на предыдущий."""
         current = await state.get_state()
         data = await state.get_data()
         tg_uid = message.from_user.id if getattr(message, "from_user", None) else 0

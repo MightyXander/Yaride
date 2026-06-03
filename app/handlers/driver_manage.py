@@ -7,8 +7,10 @@ import logging
 from aiogram import F, Router
 from aiogram.types import CallbackQuery, Message
 
+from app.chat_ui import ChatUiService
 from app.formatting import format_trip_row, format_trip_when, passenger_rating_hint
 from app.repo import Repo
+from app.ui import KeyboardFactory
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -17,51 +19,17 @@ FLOW_KIND_MANAGE = "driver_manage"
 FLOW_KIND_HISTORY = "driver_history"
 
 
+def _mk(repo: Repo, keyboards: KeyboardFactory, tg_user_id: int):
+    u = repo.users.get_user(tg_user_id)
+    return keyboards.main_keyboard(is_driver=u is not None and u["role"] == "driver")
+
+
 async def _require_driver(callback: CallbackQuery, repo: Repo):
     user = repo.users.get_user(callback.from_user.id)
     if not user or user["role"] != "driver":
         await callback.answer("Только для водителя.", show_alert=True)
         return None
     return user
-
-
-@router.message(F.text == "История поездок")
-async def my_trips(message: Message, repo: Repo) -> None:
-    from app.bot_support import close_flow, delete_user_message, main_keyboard, open_flow, send_post_flow_message
-
-    user = repo.users.get_user(message.from_user.id)
-    await delete_user_message(message)
-    if not user:
-        await close_flow(chat_id=message.chat.id, bot=message.bot)
-        await send_post_flow_message(
-            chat_id=message.chat.id,
-            bot=message.bot,
-            text="Сначала зарегистрируйся через /start.",
-            reply_keyboard=main_keyboard(repo, message.from_user.id),
-        )
-        return
-    trips = repo.trips.list_driver_trips(message.from_user.id)
-    if not trips:
-        await open_flow(
-            chat_id=message.chat.id,
-            bot=message.bot,
-            flow_kind=FLOW_KIND_HISTORY,
-            text="У тебя пока нет созданных поездок.",
-        )
-        return
-    lines = ["История поездок:"]
-    for t in trips:
-        free = t["seats_total"] - t["seats_booked"]
-        lines.append(
-            f"#{t['id']} | {t['start_title']} -> {t['end_title']} | {format_trip_row(t)} | "
-            f"{t['price_rub']} руб | свободно {free}/{t['seats_total']} | {t['status']}"
-        )
-    await open_flow(
-        chat_id=message.chat.id,
-        bot=message.bot,
-        flow_kind=FLOW_KIND_HISTORY,
-        text="\n".join(lines),
-    )
 
 
 def _manage_root_text(user_row) -> str:
@@ -74,59 +42,91 @@ def _manage_root_text(user_row) -> str:
     return "Авто-фильтр по рейтингу выключен — новые пользователи без оценок всегда могут бронировать."
 
 
-def _build_manage_root_markup(user_row, open_trips: list):
-    """Корень «Управление»: либо клавиатура порога рейтинга (нет открытых), либо список поездок.
-
-    В обоих случаях добавляем `back:menu`, чтобы из корня одним кликом уйти в главное меню.
-    """
-    from app.bot_support import (
-        driver_manage_root_keyboard,
-        driver_rating_threshold_keyboard,
-        with_back_button,
-    )
-
+def _build_manage_root_markup(user_row, open_trips: list, keyboards: KeyboardFactory):
+    """Корень «Управление»: либо клавиатура порога рейтинга (нет открытых), либо список поездок."""
     if not open_trips:
-        inner = driver_rating_threshold_keyboard()
+        inner = keyboards.driver_rating_threshold_keyboard()
         text = f"{_manage_root_text(user_row)}\n\nОткрытых поездок нет. Ниже можно задать порог рейтинга для будущих броней."
     else:
-        inner = driver_manage_root_keyboard(open_trips)
+        inner = keyboards.driver_manage_root_keyboard(open_trips)
         text = f"{_manage_root_text(user_row)}\n\nОткрытые поездки — выбери для просмотра броней или отмены поездки:"
-    return text, with_back_button(inner, target="menu")
+    return text, keyboards.with_back_button(inner, target="menu")
 
 
-@router.message(F.text == "Управление")
-async def driver_manage_entry(message: Message, repo: Repo) -> None:
-    from app.bot_support import (
-        close_flow,
-        delete_user_message,
-        main_keyboard,
-        open_flow,
-        send_post_flow_message,
-    )
-
+@router.message(F.text == "История поездок")
+async def my_trips(
+    message: Message,
+    repo: Repo,
+    chat_ui: ChatUiService,
+    keyboards: KeyboardFactory,
+) -> None:
     user = repo.users.get_user(message.from_user.id)
-    await delete_user_message(message)
+    await chat_ui.delete_user_message(message)
     if not user:
-        await close_flow(chat_id=message.chat.id, bot=message.bot)
-        await send_post_flow_message(
+        await chat_ui.close_flow(chat_id=message.chat.id, bot=message.bot)
+        await chat_ui.replace_with_notice(
             chat_id=message.chat.id,
             bot=message.bot,
             text="Сначала зарегистрируйся через /start.",
-            reply_keyboard=main_keyboard(repo, message.from_user.id),
+            reply_keyboard=_mk(repo, keyboards, message.from_user.id),
+        )
+        return
+    trips = repo.trips.list_driver_trips(message.from_user.id)
+    if not trips:
+        await chat_ui.open_flow(
+            chat_id=message.chat.id,
+            bot=message.bot,
+            flow_kind=FLOW_KIND_HISTORY,
+            text="У тебя пока нет созданных поездок.",
+            inline_markup=keyboards.back_to_menu_keyboard(),
+        )
+        return
+    lines = ["История поездок:"]
+    for t in trips:
+        free = t["seats_total"] - t["seats_booked"]
+        lines.append(
+            f"#{t['id']} | {t['start_title']} -> {t['end_title']} | {format_trip_row(t)} | "
+            f"{t['price_rub']} руб | свободно {free}/{t['seats_total']} | {t['status']}"
+        )
+    await chat_ui.open_flow(
+        chat_id=message.chat.id,
+        bot=message.bot,
+        flow_kind=FLOW_KIND_HISTORY,
+        text="\n".join(lines),
+        inline_markup=keyboards.back_to_menu_keyboard(),
+    )
+
+
+@router.message(F.text == "Управление")
+async def driver_manage_entry(
+    message: Message,
+    repo: Repo,
+    chat_ui: ChatUiService,
+    keyboards: KeyboardFactory,
+) -> None:
+    user = repo.users.get_user(message.from_user.id)
+    await chat_ui.delete_user_message(message)
+    if not user:
+        await chat_ui.close_flow(chat_id=message.chat.id, bot=message.bot)
+        await chat_ui.replace_with_notice(
+            chat_id=message.chat.id,
+            bot=message.bot,
+            text="Сначала зарегистрируйся через /start.",
+            reply_keyboard=_mk(repo, keyboards, message.from_user.id),
         )
         return
     if user["role"] != "driver":
-        await close_flow(chat_id=message.chat.id, bot=message.bot)
-        await send_post_flow_message(
+        await chat_ui.close_flow(chat_id=message.chat.id, bot=message.bot)
+        await chat_ui.replace_with_notice(
             chat_id=message.chat.id,
             bot=message.bot,
             text="Раздел «Управление» только для водителей.",
-            reply_keyboard=main_keyboard(repo, message.from_user.id),
+            reply_keyboard=_mk(repo, keyboards, message.from_user.id),
         )
         return
     open_trips = [t for t in repo.trips.list_driver_trips(message.from_user.id) if t["status"] == "open"]
-    text, markup = _build_manage_root_markup(user, open_trips)
-    await open_flow(
+    text, markup = _build_manage_root_markup(user, open_trips, keyboards)
+    await chat_ui.open_flow(
         chat_id=message.chat.id,
         bot=message.bot,
         flow_kind=FLOW_KIND_MANAGE,
@@ -136,10 +136,13 @@ async def driver_manage_entry(message: Message, repo: Repo) -> None:
 
 
 @router.callback_query(F.data == "back:manage_root")
-async def driver_manage_back_to_root(callback: CallbackQuery, repo: Repo) -> None:
+async def driver_manage_back_to_root(
+    callback: CallbackQuery,
+    repo: Repo,
+    chat_ui: ChatUiService,
+    keyboards: KeyboardFactory,
+) -> None:
     """`back:manage_root` — возврат из детального экрана/подменю порога в корень «Управление»."""
-    from app.bot_support import update_flow
-
     user = repo.users.get_user(callback.from_user.id)
     if not user or user["role"] != "driver":
         await callback.answer("Только для водителя.", show_alert=True)
@@ -148,8 +151,8 @@ async def driver_manage_back_to_root(callback: CallbackQuery, repo: Repo) -> Non
         await callback.answer()
         return
     open_trips = [t for t in repo.trips.list_driver_trips(callback.from_user.id) if t["status"] == "open"]
-    text, markup = _build_manage_root_markup(user, open_trips)
-    await update_flow(
+    text, markup = _build_manage_root_markup(user, open_trips, keyboards)
+    await chat_ui.update_flow(
         chat_id=callback.message.chat.id,
         bot=callback.bot,
         flow_kind=FLOW_KIND_MANAGE,
@@ -160,13 +163,12 @@ async def driver_manage_back_to_root(callback: CallbackQuery, repo: Repo) -> Non
 
 
 @router.callback_query(F.data.startswith("manage_trip:"))
-async def driver_manage_trip_detail(callback: CallbackQuery, repo: Repo) -> None:
-    from app.bot_support import (
-        driver_trip_detail_keyboard,
-        update_flow,
-        with_back_button,
-    )
-
+async def driver_manage_trip_detail(
+    callback: CallbackQuery,
+    repo: Repo,
+    chat_ui: ChatUiService,
+    keyboards: KeyboardFactory,
+) -> None:
     try:
         trip_id = int(callback.data.split(":", 1)[1])
     except (ValueError, IndexError):
@@ -194,20 +196,25 @@ async def driver_manage_trip_detail(callback: CallbackQuery, repo: Repo) -> None
         for b in bookings:
             lines.append(f"— {b['passenger_name']}, рейтинг: {passenger_rating_hint(b)}")
     if callback.message:
-        await update_flow(
+        await chat_ui.update_flow(
             chat_id=callback.message.chat.id,
             bot=callback.bot,
             flow_kind=FLOW_KIND_MANAGE,
             text="\n".join(lines),
-            inline_markup=with_back_button(driver_trip_detail_keyboard(trip_id, list(bookings)), target="manage_root"),
+            inline_markup=keyboards.with_back_button(
+                keyboards.driver_trip_detail_keyboard(trip_id, list(bookings)), target="manage_root"
+            ),
         )
     await callback.answer()
 
 
 @router.callback_query(F.data == "thr_menu")
-async def driver_thr_menu(callback: CallbackQuery, repo: Repo) -> None:
-    from app.bot_support import driver_rating_threshold_keyboard, update_flow, with_back_button
-
+async def driver_thr_menu(
+    callback: CallbackQuery,
+    repo: Repo,
+    chat_ui: ChatUiService,
+    keyboards: KeyboardFactory,
+) -> None:
     user = await _require_driver(callback, repo)
     if user is None:
         return
@@ -219,20 +226,25 @@ async def driver_thr_menu(callback: CallbackQuery, repo: Repo) -> None:
         else "Сейчас: автоматический отказ по рейтингу выключен."
     )
     if callback.message:
-        await update_flow(
+        await chat_ui.update_flow(
             chat_id=callback.message.chat.id,
             bot=callback.bot,
             flow_kind=FLOW_KIND_MANAGE,
             text=f"{text_cur}\n\nБез ни одной оценки пассажир всё равно может забронировать место.",
-            inline_markup=with_back_button(driver_rating_threshold_keyboard(), target="manage_root"),
+            inline_markup=keyboards.with_back_button(
+                keyboards.driver_rating_threshold_keyboard(), target="manage_root"
+            ),
         )
     await callback.answer()
 
 
 @router.callback_query(F.data.startswith("thr_set:"))
-async def driver_thr_set(callback: CallbackQuery, repo: Repo) -> None:
-    from app.bot_support import close_flow, main_keyboard, send_post_flow_message
-
+async def driver_thr_set(
+    callback: CallbackQuery,
+    repo: Repo,
+    chat_ui: ChatUiService,
+    keyboards: KeyboardFactory,
+) -> None:
     if await _require_driver(callback, repo) is None:
         return
     raw = callback.data.split(":", 1)[1]
@@ -245,20 +257,23 @@ async def driver_thr_set(callback: CallbackQuery, repo: Repo) -> None:
         await callback.answer(str(exc), show_alert=True)
         return
     if callback.message:
-        await close_flow(chat_id=callback.message.chat.id, bot=callback.bot)
-        await send_post_flow_message(
+        await chat_ui.close_flow(chat_id=callback.message.chat.id, bot=callback.bot)
+        await chat_ui.replace_with_notice(
             chat_id=callback.message.chat.id,
             bot=callback.bot,
             text="Настройка сохранена.",
-            reply_keyboard=main_keyboard(repo, callback.from_user.id),
+            reply_keyboard=_mk(repo, keyboards, callback.from_user.id),
         )
     await callback.answer("Готово")
 
 
 @router.callback_query(F.data.startswith("reject_bk:"))
-async def driver_reject_booking(callback: CallbackQuery, repo: Repo) -> None:
-    from app.bot_support import close_flow, main_keyboard, send_post_flow_message
-
+async def driver_reject_booking(
+    callback: CallbackQuery,
+    repo: Repo,
+    chat_ui: ChatUiService,
+    keyboards: KeyboardFactory,
+) -> None:
     try:
         booking_id = int(callback.data.split(":", 1)[1])
     except (ValueError, IndexError):
@@ -288,12 +303,12 @@ async def driver_reject_booking(callback: CallbackQuery, repo: Repo) -> None:
         "success",
     )
     if callback.message:
-        await close_flow(chat_id=callback.message.chat.id, bot=callback.bot)
-        await send_post_flow_message(
+        await chat_ui.close_flow(chat_id=callback.message.chat.id, bot=callback.bot)
+        await chat_ui.replace_with_notice(
             chat_id=callback.message.chat.id,
             bot=callback.bot,
             text="Бронь отклонена, место снова доступно.",
-            reply_keyboard=main_keyboard(repo, callback.from_user.id),
+            reply_keyboard=_mk(repo, keyboards, callback.from_user.id),
         )
     await callback.answer("Отклонено")
     try:
@@ -310,9 +325,12 @@ async def driver_reject_booking(callback: CallbackQuery, repo: Repo) -> None:
 
 
 @router.callback_query(F.data.startswith("cancel_trip:"))
-async def driver_cancel_trip(callback: CallbackQuery, repo: Repo) -> None:
-    from app.bot_support import close_flow, main_keyboard, send_post_flow_message
-
+async def driver_cancel_trip(
+    callback: CallbackQuery,
+    repo: Repo,
+    chat_ui: ChatUiService,
+    keyboards: KeyboardFactory,
+) -> None:
     try:
         trip_id = int(callback.data.split(":", 1)[1])
     except (ValueError, IndexError):
@@ -342,12 +360,12 @@ async def driver_cancel_trip(callback: CallbackQuery, repo: Repo) -> None:
         len(passenger_tg_ids),
     )
     if callback.message:
-        await close_flow(chat_id=callback.message.chat.id, bot=callback.bot)
-        await send_post_flow_message(
+        await chat_ui.close_flow(chat_id=callback.message.chat.id, bot=callback.bot)
+        await chat_ui.replace_with_notice(
             chat_id=callback.message.chat.id,
             bot=callback.bot,
             text=f"Поездка #{trip_id} отменена. Пассажиры с активной бронью уведомлены.",
-            reply_keyboard=main_keyboard(repo, callback.from_user.id),
+            reply_keyboard=_mk(repo, keyboards, callback.from_user.id),
         )
     await callback.answer("Поездка отменена")
     for tg_uid in passenger_tg_ids:
