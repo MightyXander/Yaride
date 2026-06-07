@@ -87,6 +87,21 @@ class UserRepository(_BaseRepository):
                     raise ValueError("Это водительское удостоверение уже привязано к другому аккаунту.") from exc
                 raise
 
+    def update_car(
+        self,
+        tg_user_id: int,
+        *,
+        car_model: str | None,
+        car_color: str | None,
+        car_plate: str | None,
+    ) -> None:
+        """Сохранить данные автомобиля водителя (поля под Mini App; схема v8)."""
+        with self.db.transaction() as conn:
+            conn.execute(
+                "UPDATE users SET car_model = ?, car_color = ?, car_plate = ? WHERE tg_user_id = ?",
+                (car_model, car_color, car_plate, tg_user_id),
+            )
+
     def get_user(self, tg_user_id: int) -> sqlite3.Row | None:
         with self.db.transaction() as conn:
             return conn.execute("SELECT * FROM users WHERE tg_user_id = ?", (tg_user_id,)).fetchone()
@@ -506,6 +521,11 @@ class TripRepository(_BaseRepository):
                 ),
             )
             return int(cur.lastrowid)
+
+    def set_trip_comment(self, trip_id: int, comment: str | None) -> None:
+        """Сохранить комментарий водителя к поездке (поле под Mini App; схема v8)."""
+        with self.db.transaction() as conn:
+            conn.execute("UPDATE trips SET comment = ? WHERE id = ?", (comment, trip_id))
 
     def get_trip_public_card(self, trip_id: int) -> sqlite3.Row | None:
         with self.db.transaction() as conn:
@@ -1171,6 +1191,15 @@ class FavoriteRouteRepository(_BaseRepository):
                 (favorite_id, tg_user_id),
             ).fetchone()
 
+    def delete_favorite(self, tg_user_id: int, favorite_id: int) -> bool:
+        """Удалить избранный маршрут пользователя. True если строка была удалена."""
+        with self.db.transaction() as conn:
+            cur = conn.execute(
+                "DELETE FROM favorite_routes WHERE id = ? AND tg_user_id = ?",
+                (favorite_id, tg_user_id),
+            )
+            return cur.rowcount > 0
+
 
 class RatingRepository(_BaseRepository):
     def _refresh_user_rating(self, conn: sqlite3.Connection, rated_user_id: int) -> None:
@@ -1498,6 +1527,70 @@ class AdminRepository(_BaseRepository):
             ).fetchall()
 
 
+class TripTemplateRepository(_BaseRepository):
+    """Маршруты-шаблоны водителя (таблица trip_templates): постоянный маршрут + дефолты цены/мест/комментария."""
+
+    def create_template(
+        self,
+        tg_driver_id: int,
+        *,
+        start_point_id: int,
+        end_point_id: int,
+        price_rub: int,
+        seats_total: int,
+        comment: str | None = None,
+    ) -> int:
+        with self.db.transaction() as conn:
+            driver = conn.execute(
+                "SELECT id FROM users WHERE tg_user_id = ? AND role = 'driver'",
+                (tg_driver_id,),
+            ).fetchone()
+            if not driver:
+                raise ValueError("Маршруты-шаблоны доступны только водителю.")
+            cur = conn.execute(
+                """
+                INSERT INTO trip_templates(driver_id, start_point_id, end_point_id, price_rub, seats_total, comment)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (int(driver["id"]), start_point_id, end_point_id, price_rub, seats_total, comment),
+            )
+            return int(cur.lastrowid)
+
+    def list_templates(self, tg_driver_id: int) -> list[sqlite3.Row]:
+        with self.db.transaction() as conn:
+            driver_id = self._get_internal_user_id(conn, tg_driver_id)
+            return conn.execute(
+                """
+                SELECT
+                    tt.id, tt.start_point_id, tt.end_point_id, tt.price_rub, tt.seats_total, tt.comment,
+                    sp.title AS start_title, ep.title AS end_title
+                FROM trip_templates tt
+                JOIN route_points sp ON sp.id = tt.start_point_id
+                JOIN route_points ep ON ep.id = tt.end_point_id
+                WHERE tt.driver_id = ?
+                ORDER BY tt.id DESC
+                """,
+                (driver_id,),
+            ).fetchall()
+
+    def get_template(self, tg_driver_id: int, template_id: int) -> sqlite3.Row | None:
+        with self.db.transaction() as conn:
+            driver_id = self._get_internal_user_id(conn, tg_driver_id)
+            return conn.execute(
+                "SELECT * FROM trip_templates WHERE id = ? AND driver_id = ?",
+                (template_id, driver_id),
+            ).fetchone()
+
+    def delete_template(self, tg_driver_id: int, template_id: int) -> bool:
+        with self.db.transaction() as conn:
+            driver_id = self._get_internal_user_id(conn, tg_driver_id)
+            cur = conn.execute(
+                "DELETE FROM trip_templates WHERE id = ? AND driver_id = ?",
+                (template_id, driver_id),
+            )
+            return cur.rowcount > 0
+
+
 class Repo:
     """Тонкий контейнер под-репозиториев; вызовы идут через repo.users, repo.routes, …"""
 
@@ -1510,6 +1603,7 @@ class Repo:
         self.favorites = FavoriteRouteRepository(db)
         self.ratings = RatingRepository(db)
         self.admin = AdminRepository(db)
+        self.templates = TripTemplateRepository(db)
 
     @staticmethod
     def default_date() -> str:

@@ -20,7 +20,9 @@ from app.seeds import ROUTE_HIERARCHY
 # v5 — этап 4: reply_aux_message_id в chat_anchors + drop bot_chat_messages (legacy cleanup_chat).
 # v6 — админка: users.is_banned, таблицы admin_users и admin_audit_log.
 # v7 — удаление городов кроме Ярославля (Рыбинск, Тутаев и др.): очистка route_points и связанных trips.
-CURRENT_SCHEMA_VERSION = 7
+# v8 — поля под Mini App: авто водителя (users.car_*) и комментарий к поездке (trips.comment).
+# v9 — маршруты-шаблоны водителя (trip_templates): быстрая повторная публикация + задел под расписание.
+CURRENT_SCHEMA_VERSION = 9
 SCHEMA_VERSION = CURRENT_SCHEMA_VERSION
 
 
@@ -154,6 +156,12 @@ class Database:
         if from_v == 6 and to_v == 7:
             self._migrate_v6_to_v7(conn)
             return
+        if from_v == 7 and to_v == 8:
+            self._migrate_v7_to_v8(conn)
+            return
+        if from_v == 8 and to_v == 9:
+            self._migrate_v8_to_v9(conn)
+            return
         raise RuntimeError(f"No migration defined from v{from_v} to v{to_v}")
 
     def _migrate_v1_to_v2(self, conn: sqlite3.Connection) -> None:
@@ -179,6 +187,50 @@ class Database:
         """Админка: флаг бана у пользователя + таблицы учётных записей админов и журнала действий."""
         self._ensure_users_is_banned(conn)
         self._ensure_admin_tables(conn)
+
+    def _migrate_v7_to_v8(self, conn: sqlite3.Connection) -> None:
+        """Mini App: данные автомобиля у водителя и текстовый комментарий к поездке."""
+        self._ensure_design_fields(conn)
+
+    def _migrate_v8_to_v9(self, conn: sqlite3.Connection) -> None:
+        """Маршруты-шаблоны водителя для быстрой повторной публикации поездок."""
+        self._ensure_trip_templates_table(conn)
+
+    def _ensure_trip_templates_table(self, conn: sqlite3.Connection) -> None:
+        """Шаблон = постоянный маршрут водителя с дефолтами. schedule_* — задел под авто-публикацию (этап B-2)."""
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS trip_templates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                driver_id INTEGER NOT NULL,
+                start_point_id INTEGER NOT NULL,
+                end_point_id INTEGER NOT NULL,
+                price_rub INTEGER NOT NULL,
+                seats_total INTEGER NOT NULL,
+                comment TEXT,
+                schedule_days TEXT,
+                schedule_time TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(driver_id) REFERENCES users(id),
+                FOREIGN KEY(start_point_id) REFERENCES route_points(id),
+                FOREIGN KEY(end_point_id) REFERENCES route_points(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_trip_templates_driver ON trip_templates(driver_id);
+            """
+        )
+
+    def _ensure_design_fields(self, conn: sqlite3.Connection) -> None:
+        """Идемпотентно добавляет поля, которые нужны Telegram Mini App (карточка поездки/детали авто)."""
+        tables = {r["name"] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if "users" in tables:
+            user_cols = {row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
+            for col in ("car_model", "car_color", "car_plate"):
+                if col not in user_cols:
+                    conn.execute(f"ALTER TABLE users ADD COLUMN {col} TEXT")
+        if "trips" in tables:
+            trip_cols = {row["name"] for row in conn.execute("PRAGMA table_info(trips)").fetchall()}
+            if "comment" not in trip_cols:
+                conn.execute("ALTER TABLE trips ADD COLUMN comment TEXT")
 
     def _ensure_users_is_banned(self, conn: sqlite3.Connection) -> None:
         """is_banned — мягкая блокировка: забаненный пользователь сохраняется (FK-связи целы), но не обслуживается ботом."""
@@ -354,6 +406,8 @@ class Database:
         self._ensure_chat_anchors_table(conn)
         self._ensure_users_is_banned(conn)
         self._ensure_admin_tables(conn)
+        self._ensure_design_fields(conn)
+        self._ensure_trip_templates_table(conn)
 
     def _migrate_schema(self, conn: sqlite3.Connection) -> None:
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(trips)").fetchall()}
