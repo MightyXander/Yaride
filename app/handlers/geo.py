@@ -20,7 +20,7 @@ async def geo_pick_suggested_start_stop(
     flow: TripFlowOrchestrator,
 ) -> None:
     cur = await state.get_state()
-    if cur is None or not str(cur).endswith("start_locality"):
+    if cur is None or not str(cur).endswith("start_district"):
         await callback.answer("Шаг устарел. Начни выбор маршрута заново.", show_alert=True)
         return
     parts = callback.data.split(":")

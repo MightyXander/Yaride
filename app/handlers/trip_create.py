@@ -21,8 +21,8 @@ router = Router()
 FLOW_KIND = "create"
 
 
-@router.message(StateFilter(TripCreate.start_locality), F.location)
-async def create_start_locality_geo(
+@router.message(StateFilter(TripCreate.start_district), F.location)
+async def create_start_district_geo(
     message: Message,
     state: FSMContext,
     repo: Repo,

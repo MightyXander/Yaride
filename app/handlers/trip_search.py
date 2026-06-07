@@ -122,8 +122,8 @@ async def search_pick_end_stop(
     await flow.pick_end_stop(callback, state, repo, mode="search")
 
 
-@router.message(StateFilter(TripSearch.start_locality), F.location)
-async def search_start_locality_geo(
+@router.message(StateFilter(TripSearch.start_district), F.location)
+async def search_start_district_geo(
     message: Message,
     state: FSMContext,
     repo: Repo,
