@@ -114,19 +114,20 @@ class TripFlowOrchestrator:
         )
 
     async def begin(self, message: Message, state: FSMContext, repo: Any, mode: str) -> None:
-        """Начать новый flow: сбросить FSM, показать клавиатуру геолокации + список населённых пунктов."""
+        """Начать новый flow: сбросить FSM, показать клавиатуру геолокации + список районов Ярославля."""
         cfg = self._cfg(mode)
         await state.clear()
-        localities = repo.routes.list_localities()
-        await state.set_state(cfg["state_group"].start_locality)
+        await state.update_data(start_locality="Ярославль")
+        districts = repo.routes.list_districts("Ярославль")
+        await state.set_state(cfg["state_group"].start_district)
         await self._chat_ui.open_flow(
             chat_id=message.chat.id,
             bot=message.bot,
             flow_kind=self._flow_kind(mode),
             text=cfg["entry_text"],
-            inline_markup=self._localities_keyboard(cfg["start_locality_prefix"], localities),
+            inline_markup=self._districts_keyboard(cfg["start_district_prefix"], districts),
             reply_keyboard=self._location_reply_keyboard(),
-            reply_hint="📍 Отправь геолокацию — покажем ближайшие остановки посадки. Или выбери город кнопками выше.",
+            reply_hint="📍 Отправь геолокацию — покажем ближайшие остановки. Или выбери район кнопками выше.",
         )
 
     async def apply_start_locality_from_geo(
@@ -137,27 +138,17 @@ class TripFlowOrchestrator:
         mode: str,
         locality: str,
     ) -> None:
+        """Переход к районам после геолокации. Locality теперь всегда 'Ярославль'."""
         cfg = self._cfg(mode)
-        localities = repo.routes.list_localities()
-        if locality not in localities:
-            await self._chat_ui.update_flow(
-                chat_id=message.chat.id,
-                bot=message.bot,
-                flow_kind=self._flow_kind(mode),
-                text="Этого населённого пункта нет в списке маршрутов. Выбери из списка кнопкой.",
-                inline_markup=self._localities_keyboard(cfg["start_locality_prefix"], localities),
-                reply_keyboard=None,
-            )
-            return
-        await state.update_data(start_locality=locality)
-        districts = repo.routes.list_districts(locality)
+        await state.update_data(start_locality="Ярославль")
+        districts = repo.routes.list_districts("Ярославль")
         await state.set_state(cfg["state_group"].start_district)
         markup = self._districts_keyboard(cfg["start_district_prefix"], districts)
         await self._chat_ui.update_flow(
             chat_id=message.chat.id,
             bot=message.bot,
             flow_kind=self._flow_kind(mode),
-            text=f"{locality}: выбери район:",
+            text="Выбери район посадки:",
             inline_markup=markup,
             reply_keyboard=None,
         )
@@ -170,57 +161,8 @@ class TripFlowOrchestrator:
         mode: str,
         is_start: bool,
     ) -> None:
-        cfg = self._cfg(mode)
-        data_pre = await state.get_data()
-        if is_start and callback.message:
-            gid = data_pre.get(_GEO_SUGGEST_MESSAGE_KEY)
-            await delete_tracked_user_geo_messages(callback.bot, callback.message.chat.id, state)
-            if gid is not None:
-                try:
-                    await callback.bot.delete_message(callback.message.chat.id, int(gid))
-                except Exception:
-                    pass
-                await state.update_data(**{_GEO_SUGGEST_MESSAGE_KEY: None})
-
-        parts = callback.data.split(":", 1)
-        if len(parts) < 2:
-            await callback.answer(stale_flow_hint(mode), show_alert=True)
-            return
-        try:
-            idx = int(parts[1])
-        except ValueError:
-            await callback.answer(stale_flow_hint(mode), show_alert=True)
-            return
-
-        if not is_start:
-            data_chk = await state.get_data()
-            if "start_point" not in data_chk:
-                await callback.answer(stale_flow_hint(mode), show_alert=True)
-                return
-
-        localities = repo.routes.list_localities()
-        try:
-            locality = localities[idx]
-        except IndexError:
-            await callback.answer(stale_flow_hint(mode), show_alert=True)
-            return
-
-        key = "start_locality" if is_start else "end_locality"
-        next_state = cfg["state_group"].start_district if is_start else cfg["state_group"].end_district
-        districts_prefix = cfg["start_district_prefix"] if is_start else cfg["end_district_prefix"]
-        title_suffix = "" if is_start else " (конечная)"
-
-        await state.update_data(**{key: locality})
-        districts = repo.routes.list_districts(locality)
-        await state.set_state(next_state)
-        await self._update(
-            callback,
-            mode=mode,
-            text=f"{locality}: выбери район{title_suffix}:",
-            inline_markup=self._districts_keyboard(districts_prefix, districts),
-            reply_keyboard=None if is_start else UNSET,
-        )
-        await callback.answer()
+        """Устаревший метод: выбор города больше не нужен (только Ярославль). Показываем stale hint."""
+        await callback.answer(stale_flow_hint(mode), show_alert=True)
 
     async def pick_district(
         self,
@@ -311,16 +253,14 @@ class TripFlowOrchestrator:
         stop = stops[0]
         await state.update_data(**{point_key: stop["id"]})
         if is_start:
-            localities = repo.routes.list_localities()
-            await state.set_state(cfg["state_group"].end_locality)
+            await state.update_data(end_locality="Ярославль")
+            districts_end = repo.routes.list_districts("Ярославль")
+            await state.set_state(cfg["state_group"].end_district)
             await self._update(
                 callback,
                 mode=mode,
-                text=(
-                    f"Старт: {locality} -> {district} -> {admin_area} -> {stop['title']}.\n"
-                    "Теперь выбери конечный населённый пункт:"
-                ),
-                inline_markup=self._localities_keyboard(cfg["end_locality_prefix"], localities),
+                text=(f"Старт: {district} -> {admin_area} -> {stop['title']}.\nТеперь выбери район высадки:"),
+                inline_markup=self._districts_keyboard(cfg["end_district_prefix"], districts_end),
             )
         else:
             await state.set_state(cfg["state_group"].trip_date)
@@ -419,19 +359,19 @@ class TripFlowOrchestrator:
             await callback.answer(stale_flow_hint(mode), show_alert=True)
             return
 
-        extras: dict[str, Any] = {"start_point": start_point}
+        extras: dict[str, Any] = {"start_point": start_point, "end_locality": "Ярославль"}
         if merged:
             if pt:
                 extras["start_admin_area"] = str(pt["admin_area"] or "")
             extras["merged_stop_pick"] = False
         await state.update_data(**extras)
-        localities = repo.routes.list_localities()
-        await state.set_state(cfg["state_group"].end_locality)
+        districts = repo.routes.list_districts("Ярославль")
+        await state.set_state(cfg["state_group"].end_district)
         await self._update(
             callback,
             mode=mode,
             text=cfg["end_entry_text"],
-            inline_markup=self._localities_keyboard(cfg["end_locality_prefix"], localities),
+            inline_markup=self._districts_keyboard(cfg["end_district_prefix"], districts),
         )
         await callback.answer()
 
@@ -515,15 +455,16 @@ class TripFlowOrchestrator:
                     pass
 
         await state.update_data(
-            start_locality=str(pt["locality"]),
+            start_locality="Ярославль",
             start_district=str(pt["district"] or ""),
             start_admin_area=str(pt["admin_area"] or ""),
             start_point=start_point,
+            end_locality="Ярославль",
             merged_stop_pick=False,
         )
         await state.update_data(**{_GEO_SUGGEST_MESSAGE_KEY: None})
-        localities = repo.routes.list_localities()
-        await state.set_state(cfg["state_group"].end_locality)
+        districts = repo.routes.list_districts("Ярославль")
+        await state.set_state(cfg["state_group"].end_district)
 
         if callback.message:
             chat_id = callback.message.chat.id
@@ -534,7 +475,7 @@ class TripFlowOrchestrator:
                 bot=bot,
                 flow_kind=self._flow_kind(mode),
                 text=cfg["end_entry_text"],
-                inline_markup=self._localities_keyboard(cfg["end_locality_prefix"], localities),
+                inline_markup=self._districts_keyboard(cfg["end_district_prefix"], districts),
                 reply_keyboard=None,
             )
         await callback.answer()

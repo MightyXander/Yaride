@@ -19,7 +19,8 @@ from app.seeds import ROUTE_HIERARCHY
 # v4 — этап 4: таблица anchor-сообщений flow;
 # v5 — этап 4: reply_aux_message_id в chat_anchors + drop bot_chat_messages (legacy cleanup_chat).
 # v6 — админка: users.is_banned, таблицы admin_users и admin_audit_log.
-CURRENT_SCHEMA_VERSION = 6
+# v7 — удаление городов кроме Ярославля (Рыбинск, Тутаев и др.): очистка route_points и связанных trips.
+CURRENT_SCHEMA_VERSION = 7
 SCHEMA_VERSION = CURRENT_SCHEMA_VERSION
 
 
@@ -150,6 +151,9 @@ class Database:
         if from_v == 5 and to_v == 6:
             self._migrate_v5_to_v6(conn)
             return
+        if from_v == 6 and to_v == 7:
+            self._migrate_v6_to_v7(conn)
+            return
         raise RuntimeError(f"No migration defined from v{from_v} to v{to_v}")
 
     def _migrate_v1_to_v2(self, conn: sqlite3.Connection) -> None:
@@ -208,6 +212,39 @@ class Database:
             CREATE INDEX IF NOT EXISTS idx_admin_audit_created ON admin_audit_log(created_at);
             """
         )
+
+    def _migrate_v6_to_v7(self, conn: sqlite3.Connection) -> None:
+        """Удалить точки маршрута и связанные данные для городов кроме Ярославля.
+
+        Порядок удаления учитывает FK: сначала зависимые таблицы (брони, оценки, поездки, избранные),
+        затем сами точки. Сначала собираем id точек, чтобы избежать частичного удаления при ошибке.
+        """
+        tables = {r["name"] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if "route_points" not in tables:
+            return
+        non_yar_ids = [
+            r["id"] for r in conn.execute("SELECT id FROM route_points WHERE locality != 'Ярославль'").fetchall()
+        ]
+        if not non_yar_ids:
+            return
+        placeholders = ",".join("?" * len(non_yar_ids))
+        trip_ids = [
+            r["id"]
+            for r in conn.execute(
+                f"SELECT id FROM trips WHERE start_point_id IN ({placeholders}) OR end_point_id IN ({placeholders})",
+                non_yar_ids + non_yar_ids,
+            ).fetchall()
+        ]
+        if trip_ids:
+            t_ph = ",".join("?" * len(trip_ids))
+            conn.execute(f"DELETE FROM bookings WHERE trip_id IN ({t_ph})", trip_ids)
+            conn.execute(f"DELETE FROM trip_ratings WHERE trip_id IN ({t_ph})", trip_ids)
+            conn.execute(f"DELETE FROM trips WHERE id IN ({t_ph})", trip_ids)
+        conn.execute(
+            f"DELETE FROM favorite_routes WHERE start_point_id IN ({placeholders}) OR end_point_id IN ({placeholders})",
+            non_yar_ids + non_yar_ids,
+        )
+        conn.execute(f"DELETE FROM route_points WHERE id IN ({placeholders})", non_yar_ids)
 
     def _ensure_chat_anchors_table(self, conn: sqlite3.Connection) -> None:
         conn.executescript(

@@ -94,16 +94,5 @@ async def handle_start_locality_geo(
         await _safe_delete(message.bot, message.chat.id, prev_mid)
     await state.update_data(**{GEO_SUGGEST_MESSAGE_KEY: None})
 
-    resolved = repo.routes.nearest_locality_from_geo(lat, lng, max_km=settings.locality_geo_max_km)
-    if not resolved:
-        try:
-            await message.answer(
-                "Не удалось подобрать остановки или город по координатам "
-                "(слишком далеко или нет данных). Выбери город из списка."
-            )
-        except Exception:
-            pass
-        return
-    locality, _dkm = resolved
     await delete_tracked_user_geo_messages(message.bot, message.chat.id, state)
-    await flow.apply_start_locality_from_geo(message, state, repo, mode, locality)
+    await flow.apply_start_locality_from_geo(message, state, repo, mode, "Ярославль")

@@ -23,8 +23,8 @@ FLOW_MODE_CFG = {
         "end_district_back": "search_end_district",
         "end_admin_back": "search_end_admin",
         "end_stop_back": "search_end_stop",
-        "entry_text": "Откуда едем: выбери населённый пункт или город:",
-        "end_entry_text": "Куда едем: выбери населённый пункт или город:",
+        "entry_text": "Откуда едем: выбери район посадки:",
+        "end_entry_text": "Куда едем: выбери район высадки:",
     },
     "create": {
         "state_group": TripCreate,
@@ -44,8 +44,8 @@ FLOW_MODE_CFG = {
         "end_district_back": "create_end_district",
         "end_admin_back": "create_end_admin",
         "end_stop_back": "create_end_stop",
-        "entry_text": "Старт поездки: выбери населённый пункт или город:",
-        "end_entry_text": "Финиш поездки: выбери населённый пункт или город:",
+        "entry_text": "Старт поездки: выбери район посадки:",
+        "end_entry_text": "Финиш поездки: выбери район высадки:",
     },
 }
 
@@ -73,14 +73,15 @@ STEP_TO_STATE_ATTR = {
     "end_stop": "end_stop",
 }
 
-# Ключ в FLOW_MODE_CFG[mode] для родительского callback «Назад»
+# Ключ в FLOW_MODE_CFG[mode] для родительского callback «Назад».
+# После удаления шага выбора города: start_district — первый шаг, end_district идёт сразу после start_stop.
 STEP_PARENT_CFG_KEY = {
     "start_locality": None,
-    "start_district": "start_locality_back",
+    "start_district": None,
     "start_admin": "start_district_back",
     "start_stop": "start_admin_back",
-    "end_locality": "start_stop_back",
-    "end_district": "end_locality_back",
+    "end_locality": None,
+    "end_district": "start_stop_back",
     "end_admin": "end_district_back",
     "end_stop": "end_admin_back",
 }

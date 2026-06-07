@@ -22,7 +22,7 @@ class GeoStopsTests(TestCase):
         self.assertEqual(ak, COORDINATE_OVERRIDES[("Ярославль", "Фрунзенский район", "Сокол / Сокол-2", "ТЦ «Аксон»")])
 
     def test_coordinate_overrides_cover_catalog_keys(self) -> None:
-        self.assertGreaterEqual(len(COORDINATE_OVERRIDES), 30)
+        self.assertGreaterEqual(len(COORDINATE_OVERRIDES), 15)
 
     def test_ul_bogdanovich6_akson_straight_line_farther_than_tolbukhina(self) -> None:
         """Ориентир: ул. Богдановича, 6 — Аксон по карте заметно южнее; расстояние по дуге должно быть больше."""

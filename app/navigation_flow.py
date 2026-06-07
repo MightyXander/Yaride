@@ -115,27 +115,14 @@ class NavigationFlow:
         await state.set_state(getattr(sg, STEP_TO_STATE_ATTR[step]))
         flow_kind = mode
 
-        if step == "start_locality":
-            locs = repo.routes.list_localities()
+        if step in ("start_locality", "start_district"):
+            districts = repo.routes.list_districts("Ярославль")
             await self._update_callback_flow(
                 callback,
                 flow_kind,
                 cfg["entry_text"],
-                self._localities_keyboard(cfg["start_locality_prefix"], locs),
-                reply_keyboard=UNSET,
-            )
-            return
-
-        if step == "start_district":
-            locality = data.get("start_locality")
-            if not locality:
-                return
-            districts = repo.routes.list_districts(str(locality))
-            await self._update_callback_flow(
-                callback,
-                flow_kind,
-                f"{locality}: выбери район:",
                 self._districts_keyboard(cfg["start_district_prefix"], districts),
+                reply_keyboard=UNSET,
             )
             return
 
@@ -168,25 +155,12 @@ class NavigationFlow:
             )
             return
 
-        if step == "end_locality":
-            locs = repo.routes.list_localities()
+        if step in ("end_locality", "end_district"):
+            districts = repo.routes.list_districts("Ярославль")
             await self._update_callback_flow(
                 callback,
                 flow_kind,
                 cfg["end_entry_text"],
-                self._localities_keyboard(cfg["end_locality_prefix"], locs),
-            )
-            return
-
-        if step == "end_district":
-            locality = data.get("end_locality")
-            if not locality:
-                return
-            districts = repo.routes.list_districts(str(locality))
-            await self._update_callback_flow(
-                callback,
-                flow_kind,
-                f"{locality}: выбери район (конечная):",
                 self._districts_keyboard(cfg["end_district_prefix"], districts),
             )
             return
@@ -329,7 +303,7 @@ class NavigationFlow:
             await self._go_to_main_menu(chat_id=message.chat.id, bot=message.bot, repo=repo, tg_user_id=tg_uid)
             return
 
-        if cur.endswith("start_locality"):
+        if cur.endswith("start_locality") or cur.endswith("start_district"):
             await state.clear()
             await self._go_to_main_menu(chat_id=message.chat.id, bot=message.bot, repo=repo, tg_user_id=tg_uid)
             return
@@ -339,28 +313,15 @@ class NavigationFlow:
         cfg = self._mode_cfg[mode]
         sg = cs if is_search else cc
 
-        if cur.endswith("start_district"):
-            locs = repo.routes.list_localities()
-            await state.set_state(sg.start_locality)
+        if cur.endswith("start_admin_area"):
+            districts = repo.routes.list_districts("Ярославль")
+            await state.set_state(sg.start_district)
             await self._update_message_flow(
                 message,
                 mode,
                 cfg["entry_text"],
-                self._localities_keyboard(cfg["start_locality_prefix"], locs),
+                self._districts_keyboard(cfg["start_district_prefix"], districts),
             )
-            return
-
-        if cur.endswith("start_admin_area"):
-            locality = data.get("start_locality")
-            if locality:
-                districts = repo.routes.list_districts(str(locality))
-                await state.set_state(sg.start_district)
-                await self._update_message_flow(
-                    message,
-                    mode,
-                    f"{locality}: выбери район:",
-                    self._districts_keyboard(cfg["start_district_prefix"], districts),
-                )
             return
 
         if cur.endswith("start_stop"):
@@ -377,43 +338,29 @@ class NavigationFlow:
                 )
             return
 
-        if cur.endswith("end_locality"):
-            locality = data.get("start_locality")
+        if cur.endswith("end_locality") or cur.endswith("end_district"):
+            locality = data.get("start_locality") or "Ярославль"
             district = data.get("start_district", "")
             admin_area = data.get("start_admin_area", "")
-            if locality is not None:
-                stops = repo.routes.list_stops(str(locality), str(district), str(admin_area))
-                await state.set_state(sg.start_stop)
-                await self._update_message_flow(
-                    message,
-                    mode,
-                    "Выбери остановку посадки:",
-                    self._stops_keyboard(stops, cfg["start_stop_prefix"]),
-                )
-            return
-
-        if cur.endswith("end_district"):
-            locs = repo.routes.list_localities()
-            await state.set_state(sg.end_locality)
+            stops = repo.routes.list_stops(str(locality), str(district), str(admin_area))
+            await state.set_state(sg.start_stop)
             await self._update_message_flow(
                 message,
                 mode,
-                cfg["end_entry_text"],
-                self._localities_keyboard(cfg["end_locality_prefix"], locs),
+                "Выбери остановку посадки:",
+                self._stops_keyboard(stops, cfg["start_stop_prefix"]),
             )
             return
 
         if cur.endswith("end_admin_area"):
-            locality = data.get("end_locality")
-            if locality:
-                districts = repo.routes.list_districts(str(locality))
-                await state.set_state(sg.end_district)
-                await self._update_message_flow(
-                    message,
-                    mode,
-                    f"{locality}: выбери район (конечная):",
-                    self._districts_keyboard(cfg["end_district_prefix"], districts),
-                )
+            districts = repo.routes.list_districts("Ярославль")
+            await state.set_state(sg.end_district)
+            await self._update_message_flow(
+                message,
+                mode,
+                cfg["end_entry_text"],
+                self._districts_keyboard(cfg["end_district_prefix"], districts),
+            )
             return
 
         if cur.endswith("end_stop"):

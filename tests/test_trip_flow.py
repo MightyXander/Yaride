@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase
-from unittest.mock import AsyncMock, call
+from unittest.mock import AsyncMock
 
 from app.trip_flow import TripFlowOrchestrator
 
@@ -177,14 +177,16 @@ class TripFlowOrchestratorTests(IsolatedAsyncioTestCase):
         await orchestrator.begin(message=msg, state=state, repo=repo, mode="search")
 
         self.assertTrue(state.cleared)
-        self.assertEqual(state.last_state, "search_start_locality")
+        self.assertEqual(state.last_state, "search_start_district")
+        self.assertEqual(state.data["start_locality"], "Ярославль")
         chat_ui.open_flow.assert_awaited_once()
         kwargs = chat_ui.open_flow.await_args.kwargs
         self.assertEqual(kwargs["text"], "ENTRY_SEARCH")
         self.assertEqual(kwargs["flow_kind"], "search")
         self.assertEqual(kwargs["reply_keyboard"], "LOC_REPLY_KB")
 
-    async def test_pick_locality_updates_end_state(self) -> None:
+    async def test_pick_locality_shows_stale_hint(self) -> None:
+        """pick_locality теперь устаревший — показывает stale hint (только Ярославль)."""
         orchestrator, chat_ui = self._build_orchestrator()
         state = _FakeState()
         state.data["start_point"] = 999
@@ -193,11 +195,9 @@ class TripFlowOrchestratorTests(IsolatedAsyncioTestCase):
 
         await orchestrator.pick_locality(callback=callback, state=state, repo=repo, mode="search", is_start=False)
 
-        self.assertEqual(state.data["end_locality"], "B")
-        self.assertEqual(state.last_state, "search_end_district")
         callback.answer.assert_awaited_once()
-        chat_ui.update_flow.assert_awaited_once()
-        self.assertIn("(конечная)", chat_ui.update_flow.await_args.kwargs["text"])
+        self.assertTrue(callback.answer.await_args.kwargs.get("show_alert"))
+        chat_ui.update_flow.assert_not_awaited()
 
     async def test_pick_end_stop_sets_trip_date_and_calendar_target(self) -> None:
         orchestrator, chat_ui = self._build_orchestrator()
@@ -220,29 +220,17 @@ class TripFlowOrchestratorTests(IsolatedAsyncioTestCase):
         markup = chat_ui.update_flow.await_args.kwargs["inline_markup"]
         self.assertEqual(markup, "CALENDAR_MARKUP")
 
-    async def test_apply_start_locality_from_geo_unknown_keeps_anchor_locality_choice(self) -> None:
-        orchestrator, chat_ui = self._build_orchestrator()
-        state = _FakeState()
-        repo = _FakeRepo()
-        msg = _FakeMessage()
-
-        await orchestrator.apply_start_locality_from_geo(msg, state, repo, "search", "НетТакого")
-
-        chat_ui.update_flow.assert_awaited_once()
-        kwargs = chat_ui.update_flow.await_args.kwargs
-        self.assertIn("Этого населённого пункта", kwargs["text"])
-        self.assertIsNone(kwargs["reply_keyboard"])
-
     async def test_apply_start_locality_from_geo_transitions_to_district_step(self) -> None:
+        """apply_start_locality_from_geo теперь всегда использует Ярославль."""
         orchestrator, chat_ui = self._build_orchestrator()
         state = _FakeState()
         repo = _FakeRepo()
         msg = _FakeMessage()
 
-        await orchestrator.apply_start_locality_from_geo(msg, state, repo, "search", "A")
+        await orchestrator.apply_start_locality_from_geo(msg, state, repo, "search", "любой")
 
         chat_ui.update_flow.assert_awaited_once()
-        self.assertEqual(state.data["start_locality"], "A")
+        self.assertEqual(state.data["start_locality"], "Ярославль")
         self.assertEqual(state.last_state, "search_start_district")
         self.assertIsNone(chat_ui.update_flow.await_args.kwargs["reply_keyboard"])
 
@@ -257,11 +245,13 @@ class TripFlowOrchestratorTests(IsolatedAsyncioTestCase):
         await orchestrator.transition_geo_pick_start_stop(callback, state, repo, "search", 10)
 
         self.assertEqual(state.data["start_point"], 10)
+        self.assertEqual(state.data["start_locality"], "Ярославль")
+        self.assertEqual(state.data["end_locality"], "Ярославль")
         self.assertIsNone(state.data.get("geo_suggest_message_id"))
         self.assertEqual(state.data.get("geo_user_location_message_ids"), [])
         deleted_ids = [c.args[1] for c in callback.bot.delete_message.await_args_list]
         self.assertEqual(deleted_ids, [123, 456, 777])
-        self.assertEqual(state.last_state, "search_end_locality")
+        self.assertEqual(state.last_state, "search_end_district")
         chat_ui.update_flow.assert_not_called()
         chat_ui.close_flow.assert_awaited_once()
         chat_ui.open_flow.assert_awaited_once()
@@ -269,20 +259,3 @@ class TripFlowOrchestratorTests(IsolatedAsyncioTestCase):
         self.assertEqual(kwargs["flow_kind"], "search")
         self.assertEqual(kwargs["text"], "END_ENTRY_SEARCH")
         self.assertIsNone(kwargs["reply_keyboard"])
-
-    async def test_pick_locality_start_deletes_geo_suggestion_message(self) -> None:
-        orchestrator, _ = self._build_orchestrator()
-        state = _FakeState()
-        state.data["geo_suggest_message_id"] = 888
-        state.data["geo_user_location_message_ids"] = [444]
-        callback = _FakeCallback("Sfl:0")
-        repo = _FakeRepo()
-
-        await orchestrator.pick_locality(callback=callback, state=state, repo=repo, mode="search", is_start=True)
-
-        self.assertEqual(
-            callback.bot.delete_message.await_args_list,
-            [call(555, 444), call(555, 888)],
-        )
-        self.assertIsNone(state.data.get("geo_suggest_message_id"))
-        self.assertEqual(state.data.get("geo_user_location_message_ids"), [])
