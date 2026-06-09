@@ -50,5 +50,5 @@ async def fallback(
         chat_id=message.chat.id,
         bot=message.bot,
         text="Используй кнопки меню или /start для регистрации.",
-        reply_keyboard=keyboards.main_keyboard(is_driver=u is not None and u["role"] == "driver"),
+        reply_keyboard=keyboards.main_keyboard(is_driver=repo.users.is_active_driver(message.from_user.id)),
     )

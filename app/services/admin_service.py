@@ -47,6 +47,8 @@ class AdminService:
         admin_username: str,
         trip_id: int,
         *,
+        start_point_id: int,
+        end_point_id: int,
         price_rub: int,
         seats_total: int,
         trip_date: str,
@@ -55,6 +57,8 @@ class AdminService:
     ) -> None:
         self._repo.trips.admin_update_trip(
             trip_id,
+            start_point_id=start_point_id,
+            end_point_id=end_point_id,
             price_rub=price_rub,
             seats_total=seats_total,
             trip_date=trip_date,
@@ -66,7 +70,10 @@ class AdminService:
             "update",
             "trip",
             trip_id,
-            f"price={price_rub}, seats={seats_total}, date={trip_date} {departure_time}, status={status}",
+            (
+                f"start={start_point_id}, end={end_point_id}, price={price_rub}, "
+                f"seats={seats_total}, date={trip_date} {departure_time}, status={status}"
+            ),
         )
 
     def cancel_trip(self, admin_username: str, trip_id: int) -> list[AdminNotification]:
@@ -85,15 +92,29 @@ class AdminService:
         name: str,
         role: str,
         min_passenger_rating: float | None,
+        dl_series_number: str | None = None,
+        dl_valid_until: str | None = None,
+        car_model: str | None = None,
+        car_color: str | None = None,
+        car_plate: str | None = None,
     ) -> None:
         self._repo.users.admin_update_user(
             user_id,
             name=name,
             role=role,
             min_passenger_rating=min_passenger_rating,
+            dl_series_number=dl_series_number,
+            dl_valid_until=dl_valid_until,
+            car_model=car_model,
+            car_color=car_color,
+            car_plate=car_plate,
         )
         self._audit(
-            admin_username, "update", "user", user_id, f"name={name}, role={role}, min_rating={min_passenger_rating}"
+            admin_username,
+            "update",
+            "user",
+            user_id,
+            f"name={name}, role={role}, min_rating={min_passenger_rating}",
         )
 
     def set_user_ban(self, admin_username: str, user_id: int, banned: bool) -> list[AdminNotification]:
@@ -102,6 +123,26 @@ class AdminService:
         if banned:
             return [AdminNotification(tg_user_id=tg_user_id, text="Доступ к боту ограничен администратором.")]
         return [AdminNotification(tg_user_id=tg_user_id, text="Доступ к боту восстановлен.")]
+
+    def approve_driver(self, admin_username: str, user_id: int) -> list[AdminNotification]:
+        tg_user_id = self._repo.users.approve_driver(user_id)
+        self._audit(admin_username, "approve_driver", "user", user_id, None)
+        return [
+            AdminNotification(
+                tg_user_id=tg_user_id,
+                text="Заявка водителя одобрена. Теперь можно создавать поездки в Yaride.",
+            )
+        ]
+
+    def reject_driver(self, admin_username: str, user_id: int) -> list[AdminNotification]:
+        tg_user_id = self._repo.users.reject_driver(user_id)
+        self._audit(admin_username, "reject_driver", "user", user_id, None)
+        return [
+            AdminNotification(
+                tg_user_id=tg_user_id,
+                text="Заявка водителя отклонена. Проверь данные ВУ и подай заявку заново через профиль.",
+            )
+        ]
 
     # ── оценки ─────────────────────────────────────────────────────────────────
 
@@ -160,6 +201,27 @@ class AdminService:
             longitude=longitude,
         )
         self._audit(admin_username, "update", "route_point", point_id, f"{locality}/{title}")
+
+    def patch_point_coordinates(
+        self,
+        admin_username: str,
+        point_id: int,
+        *,
+        latitude: float,
+        longitude: float,
+    ) -> None:
+        self._repo.routes.admin_patch_point_coordinates(
+            point_id,
+            latitude=latitude,
+            longitude=longitude,
+        )
+        self._audit(
+            admin_username,
+            "patch_coords",
+            "route_point",
+            point_id,
+            f"{latitude:.6f},{longitude:.6f}",
+        )
 
     def delete_point(self, admin_username: str, point_id: int) -> None:
         self._repo.routes.admin_delete_point(point_id)

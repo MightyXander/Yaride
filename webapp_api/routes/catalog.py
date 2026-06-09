@@ -30,3 +30,21 @@ def list_stops(
         for s in repo.routes.list_stops(LOCALITY, district, aa):
             stops.append({"id": s["id"], "title": s["title"], "adminArea": aa})
     return {"locality": LOCALITY, "district": district, "stops": stops}
+
+
+@router.get("/stops/all", dependencies=[Depends(get_auth_user)])
+def list_all_stops(repo: Repo = Depends(get_repo)) -> dict:
+    """Все остановки города с координатами — для выбора точки на карте."""
+    stops: list[dict] = []
+    for s in repo.routes.list_all_stops_with_coords(LOCALITY):
+        stops.append(
+            {
+                "id": int(s["id"]),
+                "title": s["title"],
+                "district": s["district"] or None,
+                "adminArea": s["admin_area"] or None,
+                "lat": float(s["latitude"]),
+                "lng": float(s["longitude"]),
+            }
+        )
+    return {"locality": LOCALITY, "stops": stops}

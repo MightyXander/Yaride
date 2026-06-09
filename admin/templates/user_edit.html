@@ -3,6 +3,27 @@
 {% block content %}
 <p><a href="/users">← К списку</a></p>
 <h1>{{ user.name }} <small>#{{ user.id }} · tg {{ user.tg_user_id }}</small></h1>
+
+{% if user.role == 'driver' %}
+<section class="panel">
+    <h2>Заявка водителя</h2>
+    <dl class="details">
+        <dt>Статус модерации</dt>
+        <dd><strong>{{ moderation_label(user.driver_moderation_status) }}</strong></dd>
+    </dl>
+    {% if user.driver_moderation_status == 'pending' %}
+    <div class="actions-row">
+        <form method="post" action="/users/{{ user.id }}/approve-driver">
+            <button type="submit" class="success">Разрешить</button>
+        </form>
+        <form method="post" action="/users/{{ user.id }}/reject-driver" onsubmit="return confirm('Отклонить заявку водителя?');">
+            <button type="submit" class="danger">Отклонить</button>
+        </form>
+    </div>
+    {% endif %}
+</section>
+{% endif %}
+
 <form method="post" action="/users/{{ user.id }}" class="edit">
     <label>Имя<input type="text" name="name" value="{{ user.name }}" required></label>
     <label>Роль
@@ -13,6 +34,19 @@
     <label>Мин. рейтинг пассажира (порог водителя)
         <input type="text" name="min_passenger_rating" value="{{ user.min_passenger_rating if user.min_passenger_rating is not none else '' }}" placeholder="пусто = без ограничения">
     </label>
+
+    <h3 class="form-section-title">Данные водителя</h3>
+    <p class="form-hint">Обязательны при роли <strong>driver</strong>. При смене на <strong>passenger</strong> будут очищены.</p>
+    <label>Серия и номер ВУ
+        <input type="text" name="dl_series_number" value="{{ user.dl_series_number or '' }}" placeholder="9916АВ123456">
+    </label>
+    <label>Срок действия ВУ
+        <input type="text" name="dl_valid_until" value="{{ user.dl_valid_until or '' }}" placeholder="YYYY-MM-DD">
+    </label>
+    <label>Модель авто<input type="text" name="car_model" value="{{ user.car_model or '' }}" placeholder="Kia Rio"></label>
+    <label>Цвет авто<input type="text" name="car_color" value="{{ user.car_color or '' }}" placeholder="Белый"></label>
+    <label>Госномер<input type="text" name="car_plate" value="{{ user.car_plate or '' }}" placeholder="У723КВ"></label>
+
     <button type="submit">Сохранить</button>
 </form>
 

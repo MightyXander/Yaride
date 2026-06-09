@@ -17,6 +17,7 @@ async def dashboard(request: Request, repo: Repo = Depends(get_repo)):
     by_status = repo.trips.count_trips_by_status()
     stats = {
         "users": repo.users.count_users(),
+        "drivers_pending": repo.users.count_pending_drivers(),
         "trips_open": by_status.get("open", 0),
         "trips_cancelled": by_status.get("cancelled", 0),
         "trips_completed": by_status.get("completed", 0),

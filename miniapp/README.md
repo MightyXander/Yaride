@@ -1,73 +1,62 @@
-# React + TypeScript + Vite
+# Yaride Mini App (TanStack Start)
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Telegram Mini App для карпулинга по Ярославлю.
 
-Currently, two official plugins are available:
+## Стек
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- TanStack Start + React 19 + Vite 7
+- Tailwind CSS v4
+- TanStack Query → `webapp_api` (FastAPI)
 
-## React Compiler
+## Переменные окружения
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Скопируйте `.env.example` в корень репозитория (для API) и `miniapp/.env` (для фронта):
 
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+cp .env.example .env
+cp miniapp/.env.example miniapp/.env
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+| Переменная | Где | Описание |
+|------------|-----|----------|
+| `BOT_TOKEN` | корень `.env` | Токен бота (HMAC initData) |
+| `WEBAPP_DEV_USER_ID` | корень `.env` | Dev-пользователь без Telegram |
+| `VITE_API_URL` | `miniapp/.env` | База API (пусто = прокси Vite на :8080) |
+| `VITE_YANDEX_MAPS_KEY` | `miniapp/.env` или корень `.env` | Ключ JS API Яндекс.Карт. Если не задан — подставляется `YANDEX_GEOCODER_KEY` из корневого `.env` |
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Запуск локально
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+**1. API** (из корня репозитория):
+
+```bash
+py -3 -m webapp_api
+# http://127.0.0.1:8080
 ```
+
+**2. Фронт** (из `miniapp/`):
+
+```bash
+cd miniapp
+npm install   # или: bun install
+npm run dev   # http://127.0.0.1:5173
+```
+
+Vite проксирует `/api` → `http://127.0.0.1:8080`.
+
+**3. Браузер без Telegram:** задайте `WEBAPP_DEV_USER_ID=900001` в корневом `.env`.
+
+**4. Одобрение водителя (dev):** после регистрации как driver — `py -3 -m admin` → пользователи → одобрить.
+
+## Сборка
+
+```bash
+cd miniapp
+npm run build
+```
+
+## Структура
+
+- `src/routes/` — экраны (file-based routing)
+- `src/lib/api.ts` — HTTP-клиент (`X-Init-Data`)
+- `src/lib/queries.ts` — TanStack Query options
+- `src/lib/store.tsx` — только UI-состояние (черновики)

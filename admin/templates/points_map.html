@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Карта остановок — Yaride Admin{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+{% endblock %}
+{% block content %}
+<div class="map-page">
+    <p class="map-toolbar">
+        <a href="/points">← К списку</a>
+        <span class="map-toolbar-title">Карта остановок</span>
+    </p>
+    <p class="form-hint map-hint">
+        Перетащите маркер — координаты сохраняются автоматически. Серые маркеры — оценочная позиция (ещё не сохранены в БД).
+    </p>
+    <form class="filters map-filters" method="get" action="/points/map">
+        <input type="text" name="q" placeholder="ID / название / район" value="{{ f_q }}">
+        <button type="submit">Поиск</button>
+        {% if f_q %}<a class="btn secondary" href="/points/map">Сбросить</a>{% endif %}
+    </form>
+    <div class="map-layout">
+        <aside class="map-sidebar" id="map-stop-list"></aside>
+        <div id="points-map" class="points-map"></div>
+    </div>
+    <div id="map-toast" class="map-toast" hidden></div>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<script src="/static/points-map.js"></script>
+<script>
+window.YaridePointsMap.initBulkMap({
+    containerId: "points-map",
+    listId: "map-stop-list",
+    toastId: "map-toast",
+    stops: {{ stops_json|safe }},
+    focusId: {{ focus_id if focus_id is not none else "null" }},
+});
+</script>
+{% endblock %}

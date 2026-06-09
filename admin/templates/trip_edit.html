@@ -3,7 +3,26 @@
 {% block content %}
 <p><a href="/trips">← К списку</a></p>
 <h1>Поездка #{{ trip.id }}</h1>
+<p class="notice">Сейчас: <strong>{{ trip.start_district }} — {{ trip.start_title }}</strong> → <strong>{{ trip.end_district }} — {{ trip.end_title }}</strong></p>
 <form method="post" action="/trips/{{ trip.id }}" class="edit">
+    <label>Откуда (остановка)
+        <select name="start_point_id" required>
+            {% for s in stops %}
+            <option value="{{ s.id }}" {{ 'selected' if trip.start_point_id == s.id }}>
+                #{{ s.id }} · {{ s.district or '—' }} — {{ s.title }}
+            </option>
+            {% endfor %}
+        </select>
+    </label>
+    <label>Куда (остановка)
+        <select name="end_point_id" required>
+            {% for s in stops %}
+            <option value="{{ s.id }}" {{ 'selected' if trip.end_point_id == s.id }}>
+                #{{ s.id }} · {{ s.district or '—' }} — {{ s.title }}
+            </option>
+            {% endfor %}
+        </select>
+    </label>
     <label>Цена, ₽<input type="number" name="price_rub" value="{{ trip.price_rub }}" min="0" required></label>
     <label>Всего мест<input type="number" name="seats_total" value="{{ trip.seats_total }}" min="1" required>
         <small>Занято сейчас: {{ trip.seats_booked }}</small></label>

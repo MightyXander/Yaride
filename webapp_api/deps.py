@@ -6,6 +6,7 @@ from fastapi import Depends, Header, HTTPException, Request, status
 
 from app.repo import Repo
 from webapp_api.auth import TelegramAuthUser, validate_init_data
+from webapp_api.bot_notify import BotNotifier
 from webapp_api.config import WebAppSettings
 
 
@@ -15,6 +16,10 @@ def get_settings(request: Request) -> WebAppSettings:
 
 def get_repo(request: Request) -> Repo:
     return request.app.state.repo
+
+
+def get_notifier(request: Request) -> BotNotifier:
+    return request.app.state.notifier
 
 
 def get_auth_user(

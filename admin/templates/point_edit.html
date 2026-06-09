@@ -1,20 +1,49 @@
 {% extends "base.html" %}
 {% block title %}{{ 'Новая точка' if point is none else 'Точка #' ~ point.id }} — Yaride Admin{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+{% endblock %}
 {% block content %}
-<p><a href="/points">← К списку</a></p>
+<p><a href="/points">← К списку</a>{% if point is not none %} · <a href="/points/map?focus={{ point.id }}">На карте всех остановок</a>{% endif %}</p>
 <h1>{{ 'Новая точка' if point is none else 'Точка #' ~ point.id }}</h1>
-<form method="post" action="{{ '/points/new' if point is none else '/points/' ~ point.id }}" class="edit">
-    <label>Населённый пункт<input type="text" name="locality" value="{{ point.locality if point else '' }}" required></label>
-    <label>Район<input type="text" name="district" value="{{ point.district if point else '' }}"></label>
-    <label>Подрайон<input type="text" name="admin_area" value="{{ point.admin_area if point else '' }}"></label>
-    <label>Название остановки<input type="text" name="title" value="{{ point.title if point else '' }}" required></label>
-    <label>Широта<input type="text" name="latitude" value="{{ point.latitude if point and point.latitude is not none else '' }}"></label>
-    <label>Долгота<input type="text" name="longitude" value="{{ point.longitude if point and point.longitude is not none else '' }}"></label>
-    <button type="submit">Сохранить</button>
-</form>
+<div class="point-edit-layout">
+    <form method="post" action="{{ '/points/new' if point is none else '/points/' ~ point.id }}" class="edit">
+        <label>Населённый пункт<input type="text" name="locality" value="{{ point.locality if point else '' }}" required></label>
+        <label>Район<input type="text" name="district" value="{{ point.district if point else '' }}"></label>
+        <label>Подрайон<input type="text" name="admin_area" value="{{ point.admin_area if point else '' }}"></label>
+        <label>Название остановки<input type="text" name="title" value="{{ point.title if point else '' }}" required></label>
+        <label>Широта<input type="text" name="latitude" id="point-latitude" value="{{ point.latitude if point and point.latitude is not none else '' }}"></label>
+        <label>Долгота<input type="text" name="longitude" id="point-longitude" value="{{ point.longitude if point and point.longitude is not none else '' }}"></label>
+        <p class="form-hint">Перетащите маркер на карте — поля обновятся.{% if point is not none %} При отпускании координаты сохраняются в БД.{% endif %}</p>
+        <button type="submit">{{ 'Создать' if point is none else 'Сохранить изменения' }}</button>
+    </form>
+    <div class="point-map-panel">
+        <div id="point-map" class="points-map points-map--single"></div>
+        {% if not map_saved %}<p class="form-hint">Маркер на оценочной позиции — перетащите для уточнения.</p>{% endif %}
+    </div>
+</div>
 {% if point is not none %}
 <form method="post" action="/points/{{ point.id }}/delete" onsubmit="return confirm('Удалить точку маршрута?');">
     <button type="submit" class="danger">Удалить</button>
 </form>
 {% endif %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<script src="/static/points-map.js"></script>
+<script>
+window.YaridePointsMap.initSinglePointMap({
+    containerId: "point-map",
+    lat: {{ map_lat }},
+    lng: {{ map_lng }},
+    saved: {{ "true" if map_saved else "false" }},
+    latInputId: "point-latitude",
+    lngInputId: "point-longitude",
+    {% if point is not none %}
+    pointId: {{ point.id }},
+    saveUrl: "/points/{{ point.id }}/coordinates",
+    {% else %}
+    pointId: null,
+    saveUrl: null,
+    {% endif %}
+});
+</script>
 {% endblock %}

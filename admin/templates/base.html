@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}Yaride Admin{% endblock %}</title>
     <link rel="stylesheet" href="/static/style.css">
+    {% block head %}{% endblock %}
 </head>
 <body>
 {% if admin %}
@@ -15,6 +16,7 @@
         <a class="{{ 'on' if active == 'trips' }}" href="/trips">Поездки</a>
         <a class="{{ 'on' if active == 'bookings' }}" href="/bookings">Брони</a>
         <a class="{{ 'on' if active == 'users' }}" href="/users">Пользователи</a>
+        <a class="{{ 'on' if active == 'drivers' }}" href="/drivers/pending">Водители</a>
         <a class="{{ 'on' if active == 'ratings' }}" href="/ratings">Оценки</a>
         <a class="{{ 'on' if active == 'points' }}" href="/points">Точки</a>
         <a class="{{ 'on' if active == 'audit' }}" href="/audit">Аудит</a>

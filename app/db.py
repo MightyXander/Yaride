@@ -22,7 +22,8 @@ from app.seeds import ROUTE_HIERARCHY
 # v7 — удаление городов кроме Ярославля (Рыбинск, Тутаев и др.): очистка route_points и связанных trips.
 # v8 — поля под Mini App: авто водителя (users.car_*) и комментарий к поездке (trips.comment).
 # v9 — маршруты-шаблоны водителя (trip_templates): быстрая повторная публикация + задел под расписание.
-CURRENT_SCHEMA_VERSION = 9
+# v10 — модерация водителей в админке: driver_moderation_status (pending/approved/rejected).
+CURRENT_SCHEMA_VERSION = 11
 SCHEMA_VERSION = CURRENT_SCHEMA_VERSION
 
 
@@ -162,6 +163,12 @@ class Database:
         if from_v == 8 and to_v == 9:
             self._migrate_v8_to_v9(conn)
             return
+        if from_v == 9 and to_v == 10:
+            self._migrate_v9_to_v10(conn)
+            return
+        if from_v == 10 and to_v == 11:
+            self._migrate_v10_to_v11(conn)
+            return
         raise RuntimeError(f"No migration defined from v{from_v} to v{to_v}")
 
     def _migrate_v1_to_v2(self, conn: sqlite3.Connection) -> None:
@@ -195,6 +202,14 @@ class Database:
     def _migrate_v8_to_v9(self, conn: sqlite3.Connection) -> None:
         """Маршруты-шаблоны водителя для быстрой повторной публикации поездок."""
         self._ensure_trip_templates_table(conn)
+
+    def _migrate_v9_to_v10(self, conn: sqlite3.Connection) -> None:
+        """Модерация водителей: заявка на рассмотрении до одобрения администратором."""
+        self._ensure_users_driver_moderation(conn)
+
+    def _migrate_v10_to_v11(self, conn: sqlite3.Connection) -> None:
+        """Порог рейтинга пассажиров по умолчанию выключен у всех пользователей."""
+        conn.execute("UPDATE users SET min_passenger_rating = NULL")
 
     def _ensure_trip_templates_table(self, conn: sqlite3.Connection) -> None:
         """Шаблон = постоянный маршрут водителя с дефолтами. schedule_* — задел под авто-публикацию (этап B-2)."""
@@ -408,6 +423,17 @@ class Database:
         self._ensure_admin_tables(conn)
         self._ensure_design_fields(conn)
         self._ensure_trip_templates_table(conn)
+        self._ensure_users_driver_moderation(conn)
+
+    def _ensure_users_driver_moderation(self, conn: sqlite3.Connection) -> None:
+        cols = {row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
+        if "driver_moderation_status" not in cols:
+            conn.execute(
+                """
+                ALTER TABLE users ADD COLUMN driver_moderation_status TEXT NOT NULL DEFAULT 'approved'
+                CHECK(driver_moderation_status IN ('pending', 'approved', 'rejected'))
+                """
+            )
 
     def _migrate_schema(self, conn: sqlite3.Connection) -> None:
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(trips)").fetchall()}

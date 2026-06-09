@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Заявки водителей — Yaride Admin{% endblock %}
+{% block content %}
+<h1>Заявки водителей <small>ожидают: {{ pending_count }}</small></h1>
+<p><a href="/users">Все пользователи</a></p>
+<table>
+    <thead>
+        <tr>
+            <th>#</th><th>Имя</th><th>username</th><th>tg_id</th><th>ВУ</th><th>Авто</th><th></th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for u in users %}
+        <tr>
+            <td>{{ u.id }}</td>
+            <td>{{ u.name }}</td>
+            <td>{{ u.username or '—' }}</td>
+            <td>{{ u.tg_user_id }}</td>
+            <td>{{ u.dl_series_number or '—' }}<br><small>до {{ u.dl_valid_until or '—' }}</small></td>
+            <td>
+                {% if u.car_model or u.car_plate %}
+                    {{ u.car_model or '—' }} / {{ u.car_plate or '—' }}
+                {% else %}
+                    —
+                {% endif %}
+            </td>
+            <td><a class="btn" href="/users/{{ u.id }}">Проверить</a></td>
+        </tr>
+    {% else %}
+        <tr><td colspan="7" class="empty">Нет заявок на модерации.</td></tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

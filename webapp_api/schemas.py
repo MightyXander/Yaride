@@ -58,3 +58,7 @@ class CreateTemplateRequest(BaseModel):
 class PublishTemplateRequest(BaseModel):
     trip_date: str  # YYYY-MM-DD
     departure_time: str  # HH:MM
+
+
+class PassengerRatingThresholdRequest(BaseModel):
+    threshold: str  # "3.0" | "4.0" | "4.5" | "off"

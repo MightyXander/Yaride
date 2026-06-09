@@ -39,9 +39,7 @@ def build_container() -> Container:
     keyboards = KeyboardFactory(settings=settings)
 
     def main_keyboard_provider(tg_user_id: int):
-        user = repo.users.get_user(tg_user_id)
-        is_driver = user is not None and user["role"] == "driver"
-        return keyboards.main_keyboard(is_driver=is_driver)
+        return keyboards.main_keyboard(is_driver=repo.users.is_active_driver(tg_user_id))
 
     chat_ui = ChatUiService(
         main_keyboard_provider=main_keyboard_provider,

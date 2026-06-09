@@ -88,3 +88,16 @@ def passenger_rating_hint(row) -> str:
     if rc == 0:
         return "нет оценок"
     return f"{ra:.1f}, оценок: {rc}"
+
+
+def effective_min_passenger_rating(value: float | int | str | None) -> float | None:
+    """Порог рейтинга пассажира: None или <= 0 — фильтр выключен."""
+    if value is None:
+        return None
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return None
+    if v <= 0:
+        return None
+    return round(v, 1)

@@ -10,8 +10,20 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.db import Database
 from app.repo import Repo
+from webapp_api.bot_notify import BotNotifier
 from webapp_api.config import WebAppSettings, load_webapp_settings
-from webapp_api.routes import bookings, catalog, favorites, manage, me, ratings, templates, trips
+from webapp_api.routes import (
+    bookings,
+    catalog,
+    favorites,
+    history,
+    manage,
+    me,
+    notifications,
+    ratings,
+    templates,
+    trips,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -26,9 +38,11 @@ def create_app(settings: WebAppSettings | None = None) -> FastAPI:
         app.state.settings = settings
         app.state.db = db
         app.state.repo = Repo(db)
+        app.state.notifier = BotNotifier(settings.bot_token)
         try:
             yield
         finally:
+            await app.state.notifier.close()
             db.close()
 
     app = FastAPI(title="Yaride Mini App API", lifespan=lifespan)
@@ -51,6 +65,8 @@ def create_app(settings: WebAppSettings | None = None) -> FastAPI:
     app.include_router(bookings.router)
     app.include_router(manage.router)
     app.include_router(ratings.router)
+    app.include_router(notifications.router)
+    app.include_router(history.router)
     app.include_router(favorites.router)
     app.include_router(templates.router)
     return app

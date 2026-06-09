@@ -11,6 +11,7 @@ from app.bot_support import STALE_CREATE_FLOW
 from app.chat_ui import ChatUiService
 from app.config import Settings
 from app.geo_suggestion import handle_start_locality_geo
+from app.driver_access import DRIVER_MOD_PENDING, DRIVER_MOD_REJECTED, driver_moderation_status, is_approved_driver
 from app.repo import Repo
 from app.states import TripCreate
 from app.trip_flow import TripFlowOrchestrator
@@ -47,7 +48,7 @@ async def create_trip_start(
     user = repo.users.get_user(message.from_user.id)
     await chat_ui.delete_user_message(message)
     u = repo.users.get_user(message.from_user.id)
-    mk = keyboards.main_keyboard(is_driver=u is not None and u["role"] == "driver")
+    mk = keyboards.main_keyboard(is_driver=repo.users.is_active_driver(message.from_user.id))
     if not user:
         await chat_ui.close_flow(chat_id=message.chat.id, bot=message.bot)
         await chat_ui.replace_with_notice(
@@ -57,12 +58,18 @@ async def create_trip_start(
             reply_keyboard=mk,
         )
         return
-    if user["role"] != "driver":
+    if not is_approved_driver(user):
+        notice = "Создавать поездки может только одобренный водитель."
+        status = driver_moderation_status(user)
+        if status == DRIVER_MOD_PENDING:
+            notice = "Заявка водителя на модерации. Создание поездок откроется после одобрения администратором."
+        elif status == DRIVER_MOD_REJECTED:
+            notice = "Заявка водителя отклонена. Подай заявку заново через профиль."
         await chat_ui.close_flow(chat_id=message.chat.id, bot=message.bot)
         await chat_ui.replace_with_notice(
             chat_id=message.chat.id,
             bot=message.bot,
-            text="Создавать поездки может только водитель.",
+            text=notice,
             reply_keyboard=mk,
         )
         return
@@ -166,7 +173,7 @@ async def create_set_time(
                 chat_id=callback.message.chat.id,
                 bot=callback.bot,
                 text=STALE_CREATE_FLOW,
-                reply_keyboard=keyboards.main_keyboard(is_driver=u is not None and u["role"] == "driver"),
+                reply_keyboard=keyboards.main_keyboard(is_driver=repo.users.is_active_driver(message.from_user.id)),
             )
         await state.clear()
         await callback.answer()
@@ -203,7 +210,7 @@ async def create_set_seats(
                 chat_id=callback.message.chat.id,
                 bot=callback.bot,
                 text=STALE_CREATE_FLOW,
-                reply_keyboard=keyboards.main_keyboard(is_driver=u is not None and u["role"] == "driver"),
+                reply_keyboard=keyboards.main_keyboard(is_driver=repo.users.is_active_driver(message.from_user.id)),
             )
         await state.clear()
         await callback.answer()
@@ -274,7 +281,7 @@ async def create_set_price(
                 chat_id=callback.message.chat.id,
                 bot=callback.bot,
                 text=STALE_CREATE_FLOW,
-                reply_keyboard=keyboards.main_keyboard(is_driver=u is not None and u["role"] == "driver"),
+                reply_keyboard=keyboards.main_keyboard(is_driver=repo.users.is_active_driver(message.from_user.id)),
             )
         await state.clear()
         await callback.answer()
@@ -297,7 +304,7 @@ async def create_set_price(
                 chat_id=callback.message.chat.id,
                 bot=callback.bot,
                 text=str(exc),
-                reply_keyboard=keyboards.main_keyboard(is_driver=u is not None and u["role"] == "driver"),
+                reply_keyboard=keyboards.main_keyboard(is_driver=repo.users.is_active_driver(message.from_user.id)),
             )
         await state.clear()
         await callback.answer()
@@ -311,6 +318,6 @@ async def create_set_price(
             chat_id=callback.message.chat.id,
             bot=callback.bot,
             text=f"Поездка #{trip_id} создана и доступна для поиска.",
-            reply_keyboard=keyboards.main_keyboard(is_driver=u is not None and u["role"] == "driver"),
+            reply_keyboard=keyboards.main_keyboard(is_driver=repo.users.is_active_driver(message.from_user.id)),
         )
     await callback.answer()

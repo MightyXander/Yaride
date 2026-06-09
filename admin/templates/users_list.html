@@ -2,16 +2,29 @@
 {% block title %}Пользователи — Yaride Admin{% endblock %}
 {% block content %}
 <h1>Пользователи</h1>
+{% if pending_count %}
+<p class="notice">Заявок водителей на модерации: <a href="/drivers/pending"><strong>{{ pending_count }}</strong></a></p>
+{% endif %}
 <form class="filters" method="get" action="/users">
     <input type="text" name="q" placeholder="Имя / username / tg_id" value="{{ f_q }}">
     <select name="role">
         <option value="">Все роли</option>
         {% for r in roles %}<option value="{{ r }}" {{ 'selected' if f_role == r }}>{{ r }}</option>{% endfor %}
     </select>
+    <select name="moderation">
+        <option value="">Любой статус водителя</option>
+        {% for s in moderation_statuses %}
+        <option value="{{ s }}" {{ 'selected' if f_moderation == s }}>{{ moderation_label(s) }}</option>
+        {% endfor %}
+    </select>
     <button type="submit">Поиск</button>
 </form>
 <table>
-    <thead><tr><th>#</th><th>Имя</th><th>username</th><th>tg_id</th><th>Роль</th><th>Рейтинг</th><th>Бан</th><th></th></tr></thead>
+    <thead>
+        <tr>
+            <th>#</th><th>Имя</th><th>username</th><th>tg_id</th><th>Роль</th><th>Модерация</th><th>Рейтинг</th><th>Бан</th><th></th>
+        </tr>
+    </thead>
     <tbody>
     {% for u in users %}
         <tr>
@@ -20,12 +33,19 @@
             <td>{{ u.username or '—' }}</td>
             <td>{{ u.tg_user_id }}</td>
             <td>{{ u.role }}</td>
+            <td>
+                {% if u.role == 'driver' %}
+                    {{ moderation_label(u.driver_moderation_status) }}
+                {% else %}
+                    —
+                {% endif %}
+            </td>
             <td>{{ '%.1f'|format(u.rating_avg) }} ({{ u.rating_count }})</td>
             <td>{{ 'да' if u.is_banned else '—' }}</td>
             <td><a class="btn" href="/users/{{ u.id }}">Открыть</a></td>
         </tr>
     {% else %}
-        <tr><td colspan="8" class="empty">Никого не найдено.</td></tr>
+        <tr><td colspan="9" class="empty">Никого не найдено.</td></tr>
     {% endfor %}
     </tbody>
 </table>

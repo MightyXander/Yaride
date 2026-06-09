@@ -18,12 +18,62 @@ router = APIRouter(prefix="/api/trips", tags=["trips"])
 def search_trips(
     start_point: int | None = Query(default=None),
     end_point: int | None = Query(default=None),
+    start_district: str | None = Query(default=None),
+    end_district: str | None = Query(default=None),
     date: str | None = Query(default=None),
     repo: Repo = Depends(get_repo),
 ) -> dict:
-    """Открытые поездки по фильтрам маршрута/даты (точное совпадение точек, статус open)."""
+    """Открытые поездки: точное совпадение остановок или поиск по парам районов."""
+    by_district = bool(start_district and end_district)
+    if by_district:
+        rows = repo.trips.find_open_trips(
+            start_district=start_district,
+            end_district=end_district,
+            trip_date=date,
+        )
+        return {
+            "trips": [trip_card_to_dict(r) for r in rows],
+            "searchScope": "district",
+        }
+
     rows = repo.trips.find_open_trips(start_point_id=start_point, end_point_id=end_point, trip_date=date)
-    return {"trips": [trip_card_to_dict(r) for r in rows]}
+    out: dict = {
+        "trips": [trip_card_to_dict(r) for r in rows],
+        "searchScope": "exact",
+    }
+    if not rows and start_point and end_point:
+        sp = repo.routes.get_point(start_point)
+        ep = repo.routes.get_point(end_point)
+        sd = str(sp["district"] or "").strip() if sp is not None else ""
+        ed = str(ep["district"] or "").strip() if ep is not None else ""
+        if sd and ed:
+            out["districtFallback"] = {"startDistrict": sd, "endDistrict": ed}
+    return out
+
+
+@router.get("/nearby/by-geo", dependencies=[Depends(get_auth_user)])
+def nearest_stops(
+    lat: float = Query(...),
+    lng: float = Query(...),
+    repo: Repo = Depends(get_repo),
+    settings: WebAppSettings = Depends(get_settings),
+) -> dict:
+    """Ближайшие остановки посадки по координатам (для гео-подбора, расстояние по прямой)."""
+    _ = settings
+    ranked = repo.routes.nearest_stops_global(lat, lng, limit=5, max_km=85.0)
+    out = []
+    for row, distance_km in ranked:
+        keys = row.keys()
+        out.append(
+            {
+                "id": int(row["id"]),
+                "title": row["title"] if "title" in keys else None,
+                "district": row["district"] if "district" in keys else None,
+                "adminArea": row["admin_area"] if "admin_area" in keys else None,
+                "distanceKm": round(float(distance_km), 1),
+            }
+        )
+    return {"stops": out}
 
 
 @router.get("/{trip_id}", dependencies=[Depends(get_auth_user)])
@@ -71,26 +121,3 @@ def create_trip(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"id": trip_id}
 
-
-@router.get("/nearby/by-geo", dependencies=[Depends(get_auth_user)])
-def nearest_stops(
-    lat: float = Query(...),
-    lng: float = Query(...),
-    repo: Repo = Depends(get_repo),
-    settings: WebAppSettings = Depends(get_settings),
-) -> dict:
-    """Ближайшие остановки посадки по координатам (для гео-подбора, расстояние по прямой)."""
-    _ = settings
-    rows = repo.routes.nearest_stops_global(lat, lng, limit=5, max_km=85.0)
-    out = []
-    for r in rows:
-        keys = r.keys()
-        out.append(
-            {
-                "id": r["id"] if "id" in keys else r["point_id"] if "point_id" in keys else None,
-                "title": r["title"] if "title" in keys else None,
-                "district": r["district"] if "district" in keys else None,
-                "distanceKm": round(float(r["distance_km"]), 1) if "distance_km" in keys else None,
-            }
-        )
-    return {"stops": out}

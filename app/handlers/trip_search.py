@@ -36,7 +36,7 @@ async def find_trips_start(
             chat_id=message.chat.id,
             bot=message.bot,
             text="Сначала зарегистрируйся через /start.",
-            reply_keyboard=keyboards.main_keyboard(is_driver=u is not None and u["role"] == "driver"),
+            reply_keyboard=keyboards.main_keyboard(is_driver=repo.users.is_active_driver(message.from_user.id)),
         )
         return
     await flow.begin(message, state, repo, mode="search")

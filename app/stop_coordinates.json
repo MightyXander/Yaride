@@ -46,6 +46,15 @@
   },
   {
     "locality": "Ярославль",
+    "district": "Дзержинский район",
+    "admin_area": "Павловский",
+    "title": "Павловский парк (по требованию)",
+    "lat": 57.6913196,
+    "lon": 39.8057619,
+    "source": "manual"
+  },
+  {
+    "locality": "Ярославль",
     "district": "Заволжский район",
     "admin_area": "Заволжский жилой район",
     "title": "Кинотеатр «Аврора»",
@@ -120,6 +129,15 @@
     "locality": "Ярославль",
     "district": "Ленинский район",
     "admin_area": "Весь Ленинский район",
+    "title": "Улица Белинского",
+    "lat": 57.6424831,
+    "lon": 39.8391274,
+    "source": "manual"
+  },
+  {
+    "locality": "Ярославль",
+    "district": "Ленинский район",
+    "admin_area": "Весь Ленинский район",
     "title": "Рынок «Пятёрка»",
     "lat": 57.638,
     "lon": 39.8345,
@@ -157,9 +175,9 @@
     "district": "Кировский район",
     "admin_area": "Центр",
     "title": "Улица Володарского",
-    "lat": 57.6160217,
-    "lon": 39.8630632,
-    "source": "photon"
+    "lat": 57.6237395,
+    "lon": 39.8624465,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
@@ -168,16 +186,16 @@
     "title": "Богоявленская площадь",
     "lat": 57.6225999,
     "lon": 39.8877709,
-    "source": "photon"
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Кировский район",
     "admin_area": "Центр",
     "title": "Торговый переулок",
-    "lat": 57.6249882,
-    "lon": 39.8856422,
-    "source": "photon"
+    "lat": 57.624731,
+    "lon": 39.8852431,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
@@ -186,16 +204,7 @@
     "title": "Красная площадь",
     "lat": 57.6319072,
     "lon": 39.8877186,
-    "source": "photon"
-  },
-  {
-    "locality": "Ярославль",
-    "district": "Кировский район",
-    "admin_area": "Центр",
-    "title": "Посёлок Кармановский",
-    "lat": 57.6413798,
-    "lon": 39.786121,
-    "source": "photon"
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
@@ -204,16 +213,16 @@
     "title": "Посёлок Великий",
     "lat": 57.5435396,
     "lon": 39.9590723,
-    "source": "photon"
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Фрунзенский район",
     "admin_area": "Дядьково",
     "title": "Улица Ильинская",
-    "lat": 57.5806703,
-    "lon": 39.9240912,
-    "source": "photon"
+    "lat": 57.5803449,
+    "lon": 39.9239721,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
@@ -222,7 +231,7 @@
     "title": "Бульварная улица",
     "lat": 57.6358547,
     "lon": 39.7881404,
-    "source": "photon"
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
@@ -231,16 +240,16 @@
     "title": "Коровники",
     "lat": 57.6101492,
     "lon": 39.9035469,
-    "source": "photon"
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Фрунзенский район",
     "admin_area": "Коровники",
     "title": "Мельничная улица",
-    "lat": 57.6100229,
-    "lon": 39.8931472,
-    "source": "photon"
+    "lat": 57.6057408,
+    "lon": 39.9006083,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
@@ -249,16 +258,16 @@
     "title": "Кресты",
     "lat": 57.5787592,
     "lon": 39.8491603,
-    "source": "photon"
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Фрунзенский район",
     "admin_area": "Кресты",
     "title": "Московский проспект",
-    "lat": 57.6074128,
-    "lon": 39.8761762,
-    "source": "photon"
+    "lat": 57.5759918,
+    "lon": 39.8448914,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
@@ -267,34 +276,25 @@
     "title": "Слепнёва",
     "lat": 57.579638,
     "lon": 39.880272,
-    "source": "photon"
-  },
-  {
-    "locality": "Ярославль",
-    "district": "Фрунзенский район",
-    "admin_area": "Куйбышевский",
-    "title": "Куйбышевский посёлок",
-    "lat": 57.5435396,
-    "lon": 39.9590723,
-    "source": "photon"
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Фрунзенский район",
     "admin_area": "Липовая Гора",
     "title": "Радиозавод",
-    "lat": 57.5571691,
-    "lon": 39.949729,
-    "source": "photon"
+    "lat": 57.557053,
+    "lon": 39.9489283,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Фрунзенский район",
     "admin_area": "Липовая Гора",
     "title": "Улица Звёздная",
-    "lat": 57.5620159,
-    "lon": 39.9182102,
-    "source": "photon"
+    "lat": 57.5601538,
+    "lon": 39.9197246,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
@@ -303,25 +303,16 @@
     "title": "Пивзавод",
     "lat": 57.5676176,
     "lon": 39.8959733,
-    "source": "photon"
-  },
-  {
-    "locality": "Ярославль",
-    "district": "Фрунзенский район",
-    "admin_area": "Малково",
-    "title": "Малково",
-    "lat": 57.6263877,
-    "lon": 39.8933705,
-    "source": "photon"
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Фрунзенский район",
     "admin_area": "Мирный",
     "title": "Посёлок Мирный",
-    "lat": 57.590288,
-    "lon": 39.9016688,
-    "source": "photon"
+    "lat": 57.5909944,
+    "lon": 39.9022883,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
@@ -330,16 +321,16 @@
     "title": "Нефтебаза",
     "lat": 57.5669704,
     "lon": 39.9364027,
-    "source": "photon"
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Фрунзенский район",
     "admin_area": "Новосёлки",
     "title": "Индустриальный парк «Новосёлки»",
-    "lat": 57.5486678,
-    "lon": 39.909837,
-    "source": "photon"
+    "lat": 57.5607541,
+    "lon": 39.9006986,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
@@ -348,70 +339,43 @@
     "title": "Октябрьский посёлок",
     "lat": 57.5547449,
     "lon": 39.9580415,
-    "source": "photon"
-  },
-  {
-    "locality": "Ярославль",
-    "district": "Фрунзенский район",
-    "admin_area": "Прибрежный",
-    "title": "Прибрежный микрорайон (в р-не Фрунзе)",
-    "lat": 57.9496099,
-    "lon": 38.3912758,
-    "source": "photon"
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Фрунзенский район",
     "admin_area": "Сокол / Сокол-2",
     "title": "Проспект Фрунзе",
-    "lat": 57.5489135,
-    "lon": 39.9558926,
-    "source": "photon"
-  },
-  {
-    "locality": "Ярославль",
-    "district": "Фрунзенский район",
-    "admin_area": "Сокол / Сокол-2",
-    "title": "Микрорайон Сокол",
-    "lat": 57.5952836,
-    "lon": 39.9043615,
-    "source": "photon"
-  },
-  {
-    "locality": "Ярославль",
-    "district": "Фрунзенский район",
-    "admin_area": "Суворовский",
-    "title": "Посёлок Суворовский",
-    "lat": 57.5900823,
-    "lon": 39.9157795,
-    "source": "photon"
+    "lat": 57.5850872,
+    "lon": 39.9068632,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Фрунзенский район",
     "admin_area": "Суздалка",
     "title": "Улица Суздальская",
-    "lat": 57.5692386,
-    "lon": 39.8723891,
-    "source": "photon"
+    "lat": 57.5707346,
+    "lon": 39.876656,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Фрунзенский район",
     "admin_area": "Суздалка",
     "title": "Больница №8",
-    "lat": 57.5887712,
-    "lon": 39.8766028,
-    "source": "photon"
+    "lat": 57.5893331,
+    "lon": 39.8770852,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Фрунзенский район",
     "admin_area": "Суздалка",
     "title": "Доронина",
-    "lat": 57.5759157,
-    "lon": 39.8678336,
-    "source": "photon"
+    "lat": 57.5740957,
+    "lon": 39.8714508,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
@@ -420,16 +384,16 @@
     "title": "Слепнёва",
     "lat": 57.579638,
     "lon": 39.880272,
-    "source": "photon"
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Фрунзенский район",
     "admin_area": "Тропино",
     "title": "Тропино",
-    "lat": 57.6263877,
-    "lon": 39.8933705,
-    "source": "photon"
+    "lat": 57.6131212,
+    "lon": 39.8917283,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
@@ -438,16 +402,7 @@
     "title": "Тугова гора",
     "lat": 57.6039732,
     "lon": 39.8928512,
-    "source": "photon"
-  },
-  {
-    "locality": "Ярославль",
-    "district": "Фрунзенский район",
-    "admin_area": "Тугова Гора",
-    "title": "Улица Бахарева",
-    "lat": 57.5302136,
-    "lon": 38.3413359,
-    "source": "photon"
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
@@ -456,25 +411,7 @@
     "title": "Ямская",
     "lat": 57.6066544,
     "lon": 39.8815285,
-    "source": "photon"
-  },
-  {
-    "locality": "Ярославль",
-    "district": "Фрунзенский район",
-    "admin_area": "Ямская Слобода",
-    "title": "Выемка (со стороны Фрунзенского района)",
-    "lat": 59.8308772,
-    "lon": 30.3899108,
-    "source": "photon"
-  },
-  {
-    "locality": "Ярославль",
-    "district": "Заволжский район",
-    "admin_area": "пос. Агрокомбината",
-    "title": "Агрокомбинат (Заволжье)",
-    "lat": 57.6616598,
-    "lon": 39.9329702,
-    "source": "photon"
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
@@ -483,7 +420,7 @@
     "title": "Бакуниха",
     "lat": 57.7635465,
     "lon": 39.798998,
-    "source": "photon"
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
@@ -492,7 +429,7 @@
     "title": "Борки",
     "lat": 57.6665254,
     "lon": 39.882708,
-    "source": "photon"
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
@@ -501,34 +438,7 @@
     "title": "Вакарево",
     "lat": 57.5807967,
     "lon": 39.9519092,
-    "source": "photon"
-  },
-  {
-    "locality": "Ярославль",
-    "district": "Заволжский район",
-    "admin_area": "Воздвиженье",
-    "title": "Воздвиженье",
-    "lat": 59.4876249,
-    "lon": 39.5936262,
-    "source": "photon"
-  },
-  {
-    "locality": "Ярославль",
-    "district": "Заволжский район",
-    "admin_area": "Волгострой",
-    "title": "Посёлок Волгострой",
-    "lat": 57.5435396,
-    "lon": 39.9590723,
-    "source": "photon"
-  },
-  {
-    "locality": "Ярославль",
-    "district": "Заволжский район",
-    "admin_area": "Гагаринская Слобода",
-    "title": "Гагаринская слобода",
-    "lat": 56.5901354,
-    "lon": 38.5962413,
-    "source": "photon"
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
@@ -537,25 +447,7 @@
     "title": "Долматово",
     "lat": 57.6753057,
     "lon": 39.87455,
-    "source": "photon"
-  },
-  {
-    "locality": "Ярославль",
-    "district": "Заволжский район",
-    "admin_area": "Дудкино",
-    "title": "Дудкино",
-    "lat": 57.6263877,
-    "lon": 39.8933705,
-    "source": "photon"
-  },
-  {
-    "locality": "Ярославль",
-    "district": "Заволжский район",
-    "admin_area": "Жерепково",
-    "title": "Жерепково",
-    "lat": 57.6263877,
-    "lon": 39.8933705,
-    "source": "photon"
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
@@ -564,25 +456,25 @@
     "title": "Завод №50",
     "lat": 57.6612432,
     "lon": 39.9274156,
-    "source": "photon"
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Заволжский район",
     "admin_area": "пос. Завода 50",
     "title": "Машприбор",
-    "lat": 57.61493,
-    "lon": 39.9641415,
-    "source": "photon"
+    "lat": 57.6162082,
+    "lon": 39.9648682,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Заволжский район",
     "admin_area": "Заволжский жилой район",
     "title": "Проспект Машиностроителей",
-    "lat": 57.6370949,
-    "lon": 39.9657668,
-    "source": "photon"
+    "lat": 57.648504,
+    "lon": 39.951034,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
@@ -591,7 +483,7 @@
     "title": "Улица Сахарова",
     "lat": 57.6371322,
     "lon": 39.9578526,
-    "source": "photon"
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
@@ -600,7 +492,7 @@
     "title": "Заостровка",
     "lat": 57.6514491,
     "lon": 39.8938375,
-    "source": "photon"
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
@@ -609,25 +501,25 @@
     "title": "Косая Гора",
     "lat": 57.6822574,
     "lon": 39.8548785,
-    "source": "photon"
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Заволжский район",
     "admin_area": "Куксенки",
     "title": "Куксенки",
-    "lat": 57.6810084,
-    "lon": 39.8719441,
-    "source": "photon"
+    "lat": 57.6812106,
+    "lon": 39.8714164,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Заволжский район",
     "admin_area": "Ляпино",
     "title": "Ляпино",
-    "lat": 57.6263877,
-    "lon": 39.8933705,
-    "source": "photon"
+    "lat": 57.6037361,
+    "lon": 40.0385719,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
@@ -636,7 +528,7 @@
     "title": "Школа №50",
     "lat": 57.6445057,
     "lon": 39.9177056,
-    "source": "photon"
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
@@ -645,7 +537,7 @@
     "title": "Посёлок Маяковского",
     "lat": 57.6322899,
     "lon": 39.9506049,
-    "source": "photon"
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
@@ -654,34 +546,25 @@
     "title": "Улица Университетская",
     "lat": 57.6238385,
     "lon": 39.9332842,
-    "source": "photon"
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Заволжский район",
     "admin_area": "Медведево",
     "title": "Медведево",
-    "lat": 57.6263877,
-    "lon": 39.8933705,
-    "source": "photon"
+    "lat": 57.7225599,
+    "lon": 40.0054896,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Заволжский район",
     "admin_area": "Мологино",
     "title": "Мологино",
-    "lat": 57.948406,
-    "lon": 38.866844,
-    "source": "photon"
-  },
-  {
-    "locality": "Ярославль",
-    "district": "Заволжский район",
-    "admin_area": "Насыриха",
-    "title": "Насыриха",
-    "lat": 57.6263877,
-    "lon": 39.8933705,
-    "source": "photon"
+    "lat": 57.7455588,
+    "lon": 39.821818,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
@@ -690,16 +573,16 @@
     "title": "Нижний посёлок",
     "lat": 57.6091741,
     "lon": 39.980375,
-    "source": "photon"
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Заволжский район",
     "admin_area": "Нижний пос.",
     "title": "Улица Розы Люксембург",
-    "lat": 57.6373183,
-    "lon": 39.8346704,
-    "source": "photon"
+    "lat": 57.6402136,
+    "lon": 39.8348699,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
@@ -708,7 +591,7 @@
     "title": "Очапки",
     "lat": 57.7696367,
     "lon": 39.7899669,
-    "source": "photon"
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
@@ -717,43 +600,34 @@
     "title": "Парково",
     "lat": 57.603774,
     "lon": 39.9340833,
-    "source": "photon"
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Заволжский район",
     "admin_area": "Парково",
     "title": "Озеро",
-    "lat": 57.6263877,
-    "lon": 39.8933705,
-    "source": "photon"
+    "lat": 57.6180755,
+    "lon": 40.0144925,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Заволжский район",
     "admin_area": "Першино",
     "title": "Першино",
-    "lat": 57.6263877,
-    "lon": 39.8933705,
-    "source": "photon"
-  },
-  {
-    "locality": "Ярославль",
-    "district": "Заволжский район",
-    "admin_area": "Резинотехника",
-    "title": "Завод «Резинотехника»",
-    "lat": 57.7334508,
-    "lon": 39.8065292,
-    "source": "photon"
+    "lat": 57.695778,
+    "lon": 39.701424,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Заволжский район",
     "admin_area": "Резинотехника",
     "title": "Улица Спартаковская",
-    "lat": 57.7324196,
-    "lon": 39.8077323,
-    "source": "photon"
+    "lat": 57.7215256,
+    "lon": 39.8240835,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
@@ -762,16 +636,7 @@
     "title": "Улица Панфилова",
     "lat": 57.7202078,
     "lon": 39.8331038,
-    "source": "photon"
-  },
-  {
-    "locality": "Ярославль",
-    "district": "Заволжский район",
-    "admin_area": "Рогово",
-    "title": "Рогово",
-    "lat": 57.6263877,
-    "lon": 39.8933705,
-    "source": "photon"
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
@@ -780,7 +645,7 @@
     "title": "Сергейцево",
     "lat": 57.7410278,
     "lon": 39.8255169,
-    "source": "photon"
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
@@ -789,7 +654,7 @@
     "title": "Смоленское",
     "lat": 57.6598751,
     "lon": 39.9004279,
-    "source": "photon"
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
@@ -798,16 +663,16 @@
     "title": "Средний посёлок",
     "lat": 57.6064398,
     "lon": 39.9503716,
-    "source": "photon"
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Заволжский район",
     "admin_area": "Средний пос.",
     "title": "Клубная улица",
-    "lat": 57.6089293,
-    "lon": 39.9825135,
-    "source": "photon"
+    "lat": 57.6079723,
+    "lon": 39.9658342,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
@@ -816,7 +681,7 @@
     "title": "Тверицы",
     "lat": 57.6301886,
     "lon": 39.9134112,
-    "source": "photon"
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
@@ -825,16 +690,16 @@
     "title": "Улица Стопани",
     "lat": 57.6177488,
     "lon": 39.9258195,
-    "source": "photon"
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Заволжский район",
     "admin_area": "Тверицы",
     "title": "Тверицкая набережная",
-    "lat": 57.6231847,
-    "lon": 39.9190407,
-    "source": "photon"
+    "lat": 57.6396445,
+    "lon": 39.9012676,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
@@ -843,7 +708,7 @@
     "title": "Толгский монастырь",
     "lat": 57.7002583,
     "lon": 39.8312685,
-    "source": "photon"
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
@@ -852,7 +717,7 @@
     "title": "Посёлок Толга",
     "lat": 57.7022661,
     "lon": 39.8219821,
-    "source": "photon"
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
@@ -861,7 +726,7 @@
     "title": "Трофимково",
     "lat": 57.6916444,
     "lon": 39.8393878,
-    "source": "photon"
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
@@ -870,52 +735,43 @@
     "title": "Станция Филино",
     "lat": 57.6579409,
     "lon": 39.9283959,
-    "source": "photon"
-  },
-  {
-    "locality": "Ярославль",
-    "district": "Заволжский район",
-    "admin_area": "Филино",
-    "title": "Улица Шевелюха (поворот)",
-    "lat": 57.6653151,
-    "lon": 39.9088356,
-    "source": "photon"
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Заволжский район",
     "admin_area": "Шевелюха",
     "title": "Улица Шевелюха",
-    "lat": 57.6568638,
-    "lon": 39.9094426,
-    "source": "photon"
+    "lat": 57.6685726,
+    "lon": 39.908573,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Заволжский район",
     "admin_area": "Яковлевское",
     "title": "Областная больница",
-    "lat": 57.6780051,
-    "lon": 39.818837,
-    "source": "photon"
+    "lat": 57.6578164,
+    "lon": 39.9676035,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Заволжский район",
     "admin_area": "Яковлевское",
     "title": "Яковлевская",
-    "lat": 57.6604398,
-    "lon": 39.9554527,
-    "source": "photon"
+    "lat": 57.660533,
+    "lon": 39.9625801,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Красноперекопский район",
     "admin_area": "Донская слобода",
     "title": "Улица Ухтомского",
-    "lat": 57.6209543,
-    "lon": 39.8473486,
-    "source": "photon"
+    "lat": 57.6226022,
+    "lon": 39.8436187,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
@@ -924,25 +780,16 @@
     "title": "Больница НПЗ",
     "lat": 57.5886735,
     "lon": 39.8449892,
-    "source": "photon"
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Красноперекопский район",
     "admin_area": "Нефтестрой",
     "title": "Институт",
-    "lat": 57.637078,
-    "lon": 39.858387,
-    "source": "photon"
-  },
-  {
-    "locality": "Ярославль",
-    "district": "Красноперекопский район",
-    "admin_area": "Новые Полянки",
-    "title": "Новые Полянки",
-    "lat": 57.5904272,
-    "lon": 39.8343867,
-    "source": "photon"
+    "lat": 57.6374915,
+    "lon": 39.8572416,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
@@ -951,43 +798,34 @@
     "title": "Починки",
     "lat": 57.6116636,
     "lon": 39.8140973,
-    "source": "photon"
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Красноперекопский район",
     "admin_area": "Починки",
     "title": "Улица Гагарина",
-    "lat": 57.5765937,
-    "lon": 39.8282223,
-    "source": "photon"
-  },
-  {
-    "locality": "Ярославль",
-    "district": "Красноперекопский район",
-    "admin_area": "Починки",
-    "title": "База «Нефтестрой»",
-    "lat": 57.582699,
-    "lon": 39.844856,
-    "source": "photon"
+    "lat": 57.5825529,
+    "lon": 39.8374648,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Красноперекопский район",
     "admin_area": "Толчково",
     "title": "Комсомольская площадь",
-    "lat": 57.6083351,
-    "lon": 39.8357346,
-    "source": "photon"
+    "lat": 57.6083921,
+    "lon": 39.8359718,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Красноперекопский район",
     "admin_area": "Толчково",
     "title": "Выемка",
-    "lat": 57.6054747,
-    "lon": 39.8790968,
-    "source": "photon"
+    "lat": 57.6046231,
+    "lon": 39.8780481,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
@@ -996,16 +834,16 @@
     "title": "Улица Карабулина",
     "lat": 57.604417,
     "lon": 39.8617584,
-    "source": "photon"
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Красноперекопский район",
     "admin_area": "Посёлки (малые)",
     "title": "Улица Бутырская",
-    "lat": 57.604305,
-    "lon": 39.8453267,
-    "source": "photon"
+    "lat": 57.6037243,
+    "lon": 39.8570124,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
@@ -1014,106 +852,79 @@
     "title": "Забелицы",
     "lat": 57.5989495,
     "lon": 39.8249442,
-    "source": "photon"
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Красноперекопский район",
     "admin_area": "Посёлки (малые)",
     "title": "Новодуховская",
-    "lat": 57.6007286,
-    "lon": 39.8167942,
-    "source": "photon"
-  },
-  {
-    "locality": "Ярославль",
-    "district": "Красноперекопский район",
-    "admin_area": "Посёлки (малые)",
-    "title": "Творогово (ул. 17-я Линия)",
-    "lat": 57.6167948,
-    "lon": 39.8079894,
-    "source": "photon"
-  },
-  {
-    "locality": "Ярославль",
-    "district": "Красноперекопский район",
-    "admin_area": "Посёлки (малые)",
-    "title": "Силикатный завод",
-    "lat": 57.5933379,
-    "lon": 39.8528723,
-    "source": "photon"
+    "lat": 57.6012914,
+    "lon": 39.8182107,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Ленинский район",
     "admin_area": "Весь Ленинский район",
     "title": "Проспект Ленина",
-    "lat": 57.629675,
-    "lon": 39.8501309,
-    "source": "photon"
+    "lat": 57.6319086,
+    "lon": 39.855585,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Ленинский район",
     "admin_area": "Весь Ленинский район",
     "title": "Улица Чкалова",
-    "lat": 57.6371106,
-    "lon": 39.810015,
-    "source": "photon"
+    "lat": 57.637765,
+    "lon": 39.8314249,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Ленинский район",
     "admin_area": "Весь Ленинский район",
     "title": "Улица Юности",
-    "lat": 57.6381136,
-    "lon": 39.8157931,
-    "source": "photon"
-  },
-  {
-    "locality": "Ярославль",
-    "district": "Ленинский район",
-    "admin_area": "Весь Ленинский район",
-    "title": "Улица Белинского",
-    "lat": 57.6424831,
-    "lon": 39.8391274,
-    "source": "manual"
+    "lat": 57.6383384,
+    "lon": 39.8158042,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Дзержинский район",
     "admin_area": "Брагино",
     "title": "Улица Урицкого",
-    "lat": 57.678502,
-    "lon": 39.7878123,
-    "source": "photon"
+    "lat": 57.688065,
+    "lon": 39.8067425,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Дзержинский район",
     "admin_area": "Брагино",
     "title": "Проспект Дзержинского",
-    "lat": 57.6740476,
-    "lon": 39.7730811,
-    "source": "photon"
+    "lat": 57.6871055,
+    "lon": 39.7864364,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Дзержинский район",
     "admin_area": "2-е Брагино",
     "title": "Улица Панина",
-    "lat": 57.6991406,
-    "lon": 39.788301,
-    "source": "photon"
+    "lat": 57.6855699,
+    "lon": 39.7712566,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Дзержинский район",
     "admin_area": "2-е Брагино",
     "title": "Улица Волгоградская",
-    "lat": 57.6957441,
-    "lon": 39.7668062,
-    "source": "photon"
+    "lat": 57.6926085,
+    "lon": 39.7567467,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
@@ -1122,7 +933,7 @@
     "title": "15-й микрорайон",
     "lat": 57.7040434,
     "lon": 39.7636032,
-    "source": "photon"
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
@@ -1131,43 +942,34 @@
     "title": "Иваньково",
     "lat": 57.6849783,
     "lon": 39.8265152,
-    "source": "photon"
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Дзержинский район",
     "admin_area": "Мостострой",
     "title": "Мостоотряд",
-    "lat": 57.6984087,
-    "lon": 39.7962606,
-    "source": "photon"
+    "lat": 57.6975827,
+    "lon": 39.7970793,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Дзержинский район",
     "admin_area": "Мостострой",
     "title": "Улица Старое Долматово",
-    "lat": 57.6737138,
-    "lon": 39.8691362,
-    "source": "photon"
+    "lat": 57.6752196,
+    "lon": 39.8672716,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Дзержинский район",
     "admin_area": "Норское",
     "title": "Фабрика «Красный Перевал»",
-    "lat": 57.7140917,
-    "lon": 39.7740657,
-    "source": "photon"
-  },
-  {
-    "locality": "Ярославль",
-    "district": "Дзержинский район",
-    "admin_area": "Норское",
-    "title": "Посёлок Норское",
-    "lat": 57.729015,
-    "lon": 39.774757,
-    "source": "photon"
+    "lat": 57.7151416,
+    "lon": 39.7822429,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
@@ -1176,34 +978,25 @@
     "title": "Улица Керамическая",
     "lat": 57.7304593,
     "lon": 39.764957,
-    "source": "photon"
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Дзержинский район",
     "admin_area": "Осташинское",
     "title": "Осташинское кладбище",
-    "lat": 57.6558389,
-    "lon": 39.7853136,
-    "source": "photon"
+    "lat": 57.6557871,
+    "lon": 39.789523,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Дзержинский район",
     "admin_area": "Осташинское",
     "title": "Улица Осташинская",
-    "lat": 57.6563716,
-    "lon": 39.7815126,
-    "source": "photon"
-  },
-  {
-    "locality": "Ярославль",
-    "district": "Дзержинский район",
-    "admin_area": "Парижская Коммуна",
-    "title": "Посёлок Парижская Коммуна",
-    "lat": 57.6774923,
-    "lon": 39.8335217,
-    "source": "photon"
+    "lat": 57.6584688,
+    "lon": 39.7798017,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
@@ -1212,51 +1005,24 @@
     "title": "Пашуково",
     "lat": 57.7058798,
     "lon": 39.7762297,
-    "source": "photon"
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Дзержинский район",
     "admin_area": "Пятовское",
     "title": "Пятовская",
-    "lat": 57.6459615,
-    "lon": 39.8044919,
-    "source": "photon"
-  },
-  {
-    "locality": "Ярославль",
-    "district": "Дзержинский район",
-    "admin_area": "Редковицыно",
-    "title": "Редковицыно (ул. Батова)",
-    "lat": 57.6962323,
-    "lon": 39.7951542,
-    "source": "photon"
+    "lat": 57.644081,
+    "lon": 39.8022605,
+    "source": "nominatim"
   },
   {
     "locality": "Ярославль",
     "district": "Дзержинский район",
     "admin_area": "Скобыкино",
     "title": "Скобыкино",
-    "lat": 57.7088933,
-    "lon": 39.7863758,
-    "source": "photon"
-  },
-  {
-    "locality": "Ярославль",
-    "district": "Дзержинский район",
-    "admin_area": "Фрольцево",
-    "title": "Фрольцево",
-    "lat": 58.509046,
-    "lon": 40.527752,
-    "source": "photon"
-  },
-  {
-    "locality": "Ярославль",
-    "district": "Дзержинский район",
-    "admin_area": "Павловский",
-    "title": "Павловский парк (по требованию)",
-    "lat": 57.6913196,
-    "lon": 39.8057619,
-    "source": "manual"
+    "lat": 57.701624,
+    "lon": 39.7969227,
+    "source": "nominatim"
   }
 ]

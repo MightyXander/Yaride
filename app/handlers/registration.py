@@ -21,8 +21,7 @@ FLOW_KIND = "registration"
 
 
 def _mk(repo: Repo, keyboards: KeyboardFactory, tg_user_id: int):
-    u = repo.users.get_user(tg_user_id)
-    return keyboards.main_keyboard(is_driver=u is not None and u["role"] == "driver")
+    return keyboards.main_keyboard(is_driver=repo.users.is_active_driver(tg_user_id))
 
 
 @router.message(Command("start"))
@@ -247,8 +246,10 @@ async def reg_dl_expiry(
         chat_id=message.chat.id,
         bot=message.bot,
         text=(
-            "Профиль водителя сохранён: формат ВУ проверен локально.\n"
-            "Условия сервиса: плата покрывает бензин и износ, сервис не является такси."
+            "Заявка водителя отправлена на модерацию.\n"
+            "После проверки администратором откроется создание поездок.\n\n"
+            "Формат ВУ проверен локально. Условия сервиса: плата покрывает бензин и износ, "
+            "сервис не является такси."
         ),
         reply_keyboard=_mk(repo, keyboards, message.from_user.id),
     )

@@ -42,8 +42,7 @@ def _ctx() -> Container:
 
 
 def main_keyboard(repo: Repo, tg_user_id: int) -> ReplyKeyboardMarkup:
-    user = repo.users.get_user(tg_user_id)
-    is_driver = user is not None and user["role"] == "driver"
+    is_driver = repo.users.is_active_driver(tg_user_id)
     return _ctx().keyboards.main_keyboard(is_driver=is_driver)
 
 

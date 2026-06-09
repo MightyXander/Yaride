@@ -14,6 +14,14 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
 from app.db import Database
+from app.driver_access import (
+    DRIVER_MOD_APPROVED,
+    DRIVER_MOD_PENDING,
+    DRIVER_MOD_REJECTED,
+    driver_moderation_status,
+    is_approved_driver,
+)
+from app.formatting import effective_min_passenger_rating
 from app.geo_stops import haversine_km
 from app.seeds import ROUTE_HIERARCHY
 
@@ -44,6 +52,30 @@ class _BaseRepository:
 
 
 class UserRepository(_BaseRepository):
+    @staticmethod
+    def _driver_moderation_for_upsert(
+        existing: sqlite3.Row | None,
+        role: str,
+    ) -> str:
+        if role != "driver":
+            return DRIVER_MOD_APPROVED
+        if existing is None:
+            return DRIVER_MOD_PENDING
+        prev_role = existing["role"]
+        prev_status = (
+            existing["driver_moderation_status"]
+            if "driver_moderation_status" in existing.keys()
+            else DRIVER_MOD_APPROVED
+        )
+        if prev_role != "driver" or prev_status == DRIVER_MOD_REJECTED:
+            return DRIVER_MOD_PENDING
+        if prev_status == DRIVER_MOD_APPROVED:
+            return DRIVER_MOD_APPROVED
+        return DRIVER_MOD_PENDING
+
+    def is_active_driver(self, tg_user_id: int) -> bool:
+        return is_approved_driver(self.get_user(tg_user_id))
+
     def upsert_user(
         self,
         tg_user_id: int,
@@ -62,25 +94,46 @@ class UserRepository(_BaseRepository):
             dl_valid_until = None
 
         with self.db.transaction() as conn:
-            row = conn.execute("SELECT id FROM users WHERE tg_user_id = ?", (tg_user_id,)).fetchone()
+            existing = conn.execute("SELECT * FROM users WHERE tg_user_id = ?", (tg_user_id,)).fetchone()
+            moderation_status = self._driver_moderation_for_upsert(existing, role)
             try:
-                if row:
+                if existing:
                     conn.execute(
                         """
                         UPDATE users
-                        SET name = ?, username = ?, role = ?, dl_series_number = ?, dl_valid_until = ?
+                        SET name = ?, username = ?, role = ?, dl_series_number = ?, dl_valid_until = ?,
+                            driver_moderation_status = ?
                         WHERE tg_user_id = ?
                         """,
-                        (name, username, role, dl_series_number, dl_valid_until, tg_user_id),
+                        (
+                            name,
+                            username,
+                            role,
+                            dl_series_number,
+                            dl_valid_until,
+                            moderation_status,
+                            tg_user_id,
+                        ),
                     )
                     return
 
                 conn.execute(
                     """
-                    INSERT INTO users(tg_user_id, name, username, role, dl_series_number, dl_valid_until)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    INSERT INTO users(
+                        tg_user_id, name, username, role, dl_series_number, dl_valid_until,
+                        driver_moderation_status
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (tg_user_id, name, username, role, dl_series_number, dl_valid_until),
+                    (
+                        tg_user_id,
+                        name,
+                        username,
+                        role,
+                        dl_series_number,
+                        dl_valid_until,
+                        moderation_status,
+                    ),
                 )
             except sqlite3.IntegrityError as exc:
                 if "uq_users_dl_series" in str(exc) or "dl_series_number" in str(exc).lower():
@@ -121,6 +174,7 @@ class UserRepository(_BaseRepository):
         *,
         query: str | None = None,
         role: str | None = None,
+        driver_moderation_status: str | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[sqlite3.Row]:
@@ -134,10 +188,57 @@ class UserRepository(_BaseRepository):
         if role:
             sql += " AND role = ?"
             params.append(role)
+        if driver_moderation_status:
+            sql += " AND driver_moderation_status = ?"
+            params.append(driver_moderation_status)
         sql += " ORDER BY id DESC LIMIT ? OFFSET ?"
         params.extend([limit, offset])
         with self.db.transaction() as conn:
             return conn.execute(sql, tuple(params)).fetchall()
+
+    def count_pending_drivers(self) -> int:
+        with self.db.transaction() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS c FROM users
+                WHERE role = 'driver' AND driver_moderation_status = ?
+                """,
+                (DRIVER_MOD_PENDING,),
+            ).fetchone()
+            return int(row["c"])
+
+    def approve_driver(self, user_id: int) -> int:
+        """Одобрить заявку водителя. Возвращает tg_user_id для уведомления."""
+        with self.db.transaction() as conn:
+            user = conn.execute(
+                "SELECT id, tg_user_id, role, dl_series_number FROM users WHERE id = ?",
+                (user_id,),
+            ).fetchone()
+            if not user:
+                raise ValueError("Пользователь не найден.")
+            if user["role"] != "driver":
+                raise ValueError("Одобрение доступно только для роли водителя.")
+            if not user["dl_series_number"]:
+                raise ValueError("Нельзя одобрить водителя без данных ВУ.")
+            conn.execute(
+                "UPDATE users SET driver_moderation_status = ? WHERE id = ?",
+                (DRIVER_MOD_APPROVED, user_id),
+            )
+            return int(user["tg_user_id"])
+
+    def reject_driver(self, user_id: int) -> int:
+        """Отклонить заявку водителя. Возвращает tg_user_id для уведомления."""
+        with self.db.transaction() as conn:
+            user = conn.execute("SELECT id, tg_user_id, role FROM users WHERE id = ?", (user_id,)).fetchone()
+            if not user:
+                raise ValueError("Пользователь не найден.")
+            if user["role"] != "driver":
+                raise ValueError("Отклонение доступно только для роли водителя.")
+            conn.execute(
+                "UPDATE users SET driver_moderation_status = ? WHERE id = ?",
+                (DRIVER_MOD_REJECTED, user_id),
+            )
+            return int(user["tg_user_id"])
 
     def count_users(self) -> int:
         with self.db.transaction() as conn:
@@ -150,22 +251,65 @@ class UserRepository(_BaseRepository):
         name: str,
         role: str,
         min_passenger_rating: float | None,
+        dl_series_number: str | None = None,
+        dl_valid_until: str | None = None,
+        car_model: str | None = None,
+        car_color: str | None = None,
+        car_plate: str | None = None,
     ) -> None:
-        """Админ-правка профиля. Роль водителя требует данных ВУ — иначе понижение до пассажира не делаем здесь."""
+        """Админ-правка профиля. Роль водителя требует данных ВУ в форме или в уже сохранённом профиле."""
         if role not in ("driver", "passenger"):
             raise ValueError("Недопустимая роль.")
         if not name.strip():
             raise ValueError("Имя не может быть пустым.")
         with self.db.transaction() as conn:
-            user = conn.execute("SELECT id, dl_series_number FROM users WHERE id = ?", (user_id,)).fetchone()
+            user = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
             if not user:
                 raise ValueError("Пользователь не найден.")
-            if role == "driver" and not user["dl_series_number"]:
-                raise ValueError("Нельзя назначить роль водителя без данных ВУ в профиле.")
-            conn.execute(
-                "UPDATE users SET name = ?, role = ?, min_passenger_rating = ? WHERE id = ?",
-                (name.strip(), role, min_passenger_rating, user_id),
-            )
+
+            dl_series = (dl_series_number or "").strip() or user["dl_series_number"]
+            dl_valid = (dl_valid_until or "").strip() or user["dl_valid_until"]
+            car_model_val = (car_model or "").strip() or None
+            car_color_val = (car_color or "").strip() or None
+            car_plate_val = (car_plate or "").strip() or None
+            if role == "passenger":
+                dl_series = None
+                dl_valid = None
+                car_model_val = None
+                car_color_val = None
+                car_plate_val = None
+                moderation_status = DRIVER_MOD_APPROVED
+            else:
+                if not dl_series or not dl_valid:
+                    raise ValueError("Для роли водителя укажите серию/номер ВУ и срок действия.")
+                moderation_status = DRIVER_MOD_APPROVED
+
+            try:
+                conn.execute(
+                    """
+                    UPDATE users
+                    SET name = ?, role = ?, min_passenger_rating = ?, driver_moderation_status = ?,
+                        dl_series_number = ?, dl_valid_until = ?,
+                        car_model = ?, car_color = ?, car_plate = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        name.strip(),
+                        role,
+                        min_passenger_rating,
+                        moderation_status,
+                        dl_series,
+                        dl_valid,
+                        car_model_val,
+                        car_color_val,
+                        car_plate_val,
+                        user_id,
+                    ),
+                )
+            except sqlite3.IntegrityError as exc:
+                if "uq_users_dl_series" in str(exc) or "dl_series_number" in str(exc).lower():
+                    raise ValueError("Это водительское удостоверение уже привязано к другому аккаунту.") from exc
+                raise
 
     def set_banned(self, user_id: int, banned: bool) -> int:
         """Мягкая блокировка/разблокировка. Возвращает tg_user_id для уведомления."""
@@ -188,14 +332,15 @@ class UserRepository(_BaseRepository):
     def set_driver_min_passenger_rating(self, tg_user_id: int, min_rating: float | None) -> None:
         """Минимальный средний рейтинг пассажира для автоматического принятия брони; None — без ограничения."""
         with self.db.transaction() as conn:
-            user = conn.execute("SELECT id, role FROM users WHERE tg_user_id = ?", (tg_user_id,)).fetchone()
+            user = conn.execute("SELECT * FROM users WHERE tg_user_id = ?", (tg_user_id,)).fetchone()
             if not user:
                 raise ValueError("Пользователь не зарегистрирован.")
-            if user["role"] != "driver":
-                raise ValueError("Порог рейтинга настраивает только водитель.")
+            if not is_approved_driver(user):
+                raise ValueError("Порог рейтинга настраивает только одобренный водитель.")
+            normalized = effective_min_passenger_rating(min_rating)
             conn.execute(
                 "UPDATE users SET min_passenger_rating = ? WHERE id = ?",
-                (min_rating, user["id"]),
+                (normalized, user["id"]),
             )
 
     def switch_role(self, tg_user_id: int, new_role: str, for_date: str) -> tuple[bool, str]:
@@ -234,18 +379,44 @@ class UserRepository(_BaseRepository):
 
             if new_role == "passenger":
                 conn.execute(
-                    "UPDATE users SET role = ?, dl_series_number = NULL, dl_valid_until = NULL WHERE id = ?",
-                    (new_role, user["id"]),
+                    """
+                    UPDATE users
+                    SET role = ?, dl_series_number = NULL, dl_valid_until = NULL,
+                        driver_moderation_status = ?
+                    WHERE id = ?
+                    """,
+                    (new_role, DRIVER_MOD_APPROVED, user["id"]),
                 )
             else:
-                conn.execute("UPDATE users SET role = ? WHERE id = ?", (new_role, user["id"]))
-            return True, "Роль обновлена."
+                conn.execute(
+                    "UPDATE users SET role = ?, driver_moderation_status = ? WHERE id = ?",
+                    (new_role, DRIVER_MOD_PENDING, user["id"]),
+                )
+            return True, "Роль обновлена. Заявка водителя отправлена на модерацию."
 
 
 class RouteRepository(_BaseRepository):
     def route_points(self) -> list[sqlite3.Row]:
         with self.db.transaction() as conn:
             return conn.execute("SELECT * FROM route_points ORDER BY locality, district, title").fetchall()
+
+    def list_points_admin(
+        self,
+        *,
+        query: str | None = None,
+        limit: int = 500,
+    ) -> list[sqlite3.Row]:
+        """Список остановок для админки с поиском по id/названию/району."""
+        sql = "SELECT * FROM route_points WHERE kind = 'stop'"
+        params: list[object] = []
+        if query:
+            like = f"%{query.strip()}%"
+            sql += " AND (title LIKE ? OR COALESCE(district,'') LIKE ? OR COALESCE(admin_area,'') LIKE ? OR CAST(id AS TEXT) LIKE ?)"
+            params.extend([like, like, like, like])
+        sql += " ORDER BY locality, district, title LIMIT ?"
+        params.append(limit)
+        with self.db.transaction() as conn:
+            return conn.execute(sql, tuple(params)).fetchall()
 
     def list_localities(self) -> list[str]:
         """Ярославль всегда первым — это основной город маршрутов."""
@@ -330,6 +501,24 @@ class RouteRepository(_BaseRepository):
                 (locality, district, admin_area),
             ).fetchall()
 
+    def list_all_stops_with_coords(self, locality: str) -> list[sqlite3.Row]:
+        """Все остановки города с координатами — для отрисовки на карте Mini App.
+
+        Точки без координат отбрасываем: на карте их не показать.
+        """
+        with self.db.transaction() as conn:
+            return conn.execute(
+                """
+                SELECT id, title, COALESCE(district, '') AS district, COALESCE(admin_area, '') AS admin_area,
+                       latitude, longitude
+                FROM route_points
+                WHERE locality = ? AND kind = 'stop'
+                  AND latitude IS NOT NULL AND longitude IS NOT NULL
+                ORDER BY title
+                """,
+                (locality,),
+            ).fetchall()
+
     def get_point(self, point_id: int) -> sqlite3.Row | None:
         with self.db.transaction() as conn:
             return conn.execute("SELECT * FROM route_points WHERE id = ?", (point_id,)).fetchone()
@@ -379,6 +568,19 @@ class RouteRepository(_BaseRepository):
                 WHERE id = ?
                 """,
                 (locality.strip(), district.strip(), admin_area.strip(), title.strip(), latitude, longitude, point_id),
+            )
+
+    def admin_patch_point_coordinates(self, point_id: int, *, latitude: float, longitude: float) -> None:
+        """Обновить только координаты остановки (drag-and-drop на карте админки)."""
+        if not (57.0 <= latitude <= 58.5 and 38.5 <= longitude <= 41.0):
+            raise ValueError("Координаты вне области Ярославля.")
+        with self.db.transaction() as conn:
+            row = conn.execute("SELECT id FROM route_points WHERE id = ?", (point_id,)).fetchone()
+            if not row:
+                raise ValueError("Точка маршрута не найдена.")
+            conn.execute(
+                "UPDATE route_points SET latitude = ?, longitude = ? WHERE id = ?",
+                (round(latitude, 6), round(longitude, 6), point_id),
             )
 
     def admin_delete_point(self, point_id: int) -> None:
@@ -487,11 +689,15 @@ class TripRepository(_BaseRepository):
     ) -> int:
         with self.db.transaction() as conn:
             driver = conn.execute(
-                "SELECT id, dl_series_number FROM users WHERE tg_user_id = ? AND role = 'driver'",
+                "SELECT * FROM users WHERE tg_user_id = ? AND role = 'driver'",
                 (tg_driver_id,),
             ).fetchone()
-            if not driver:
-                raise ValueError("Только водитель может создавать поездку.")
+            if not is_approved_driver(driver):
+                if driver and driver_moderation_status(driver) == DRIVER_MOD_PENDING:
+                    raise ValueError("Заявка водителя на модерации. Создание поездок будет доступно после одобрения.")
+                if driver and driver_moderation_status(driver) == DRIVER_MOD_REJECTED:
+                    raise ValueError("Заявка водителя отклонена. Обратись в поддержку или подай заявку заново.")
+                raise ValueError("Только одобренный водитель может создавать поездку.")
             if not driver["dl_series_number"]:
                 raise ValueError(
                     "В профиле нет данных действующего ВУ. Пройди регистрацию водителя заново через /start."
@@ -543,6 +749,10 @@ class TripRepository(_BaseRepository):
                     t.status,
                     sp.title AS start_title,
                     ep.title AS end_title,
+                    sp.latitude AS start_lat,
+                    sp.longitude AS start_lng,
+                    ep.latitude AS end_lat,
+                    ep.longitude AS end_lng,
                     u.name AS driver_name,
                     u.rating_avg AS driver_rating
                 FROM trips t
@@ -558,6 +768,8 @@ class TripRepository(_BaseRepository):
         self,
         start_point_id: int | None = None,
         end_point_id: int | None = None,
+        start_district: str | None = None,
+        end_district: str | None = None,
         trip_date: str | None = None,
         departure_time: str | None = None,
     ) -> list[sqlite3.Row]:
@@ -589,6 +801,12 @@ class TripRepository(_BaseRepository):
         if end_point_id:
             query += " AND t.end_point_id = ?"
             params.append(end_point_id)
+        if start_district is not None:
+            query += " AND COALESCE(sp.district, '') = ?"
+            params.append(str(start_district).strip())
+        if end_district is not None:
+            query += " AND COALESCE(ep.district, '') = ?"
+            params.append(str(end_district).strip())
         if trip_date:
             query += " AND t.trip_date = ?"
             params.append(trip_date)
@@ -615,12 +833,50 @@ class TripRepository(_BaseRepository):
                     t.seats_booked,
                     t.status,
                     sp.title AS start_title,
+                    ep.title AS end_title,
+                    sp.latitude AS start_lat,
+                    sp.longitude AS start_lng,
+                    ep.latitude AS end_lat,
+                    ep.longitude AS end_lng,
+                    u.name AS driver_name,
+                    u.rating_avg AS driver_rating
+                FROM trips t
+                JOIN route_points sp ON sp.id = t.start_point_id
+                JOIN route_points ep ON ep.id = t.end_point_id
+                JOIN users u ON u.id = t.driver_id
+                WHERE t.driver_id = ?
+                ORDER BY t.id DESC
+                """,
+                (driver_id,),
+            ).fetchall()
+
+    def list_driver_history(self, tg_driver_id: int) -> list[sqlite3.Row]:
+        """Прошлые/завершённые поездки водителя."""
+        with self.db.transaction() as conn:
+            driver_id = self._get_internal_user_id(conn, tg_driver_id)
+            return conn.execute(
+                """
+                SELECT
+                    t.id AS trip_id,
+                    t.trip_date,
+                    t.departure_time,
+                    t.time_slot,
+                    t.price_rub,
+                    t.seats_total,
+                    t.seats_booked,
+                    t.status AS trip_status,
+                    sp.title AS start_title,
                     ep.title AS end_title
                 FROM trips t
                 JOIN route_points sp ON sp.id = t.start_point_id
                 JOIN route_points ep ON ep.id = t.end_point_id
                 WHERE t.driver_id = ?
-                ORDER BY t.id DESC
+                  AND (
+                    t.status IN ('completed', 'cancelled')
+                    OR datetime(trim(t.trip_date) || ' ' || trim(COALESCE(t.departure_time, '00:00')))
+                        <= datetime('now', 'localtime')
+                  )
+                ORDER BY t.trip_date DESC, t.departure_time DESC, t.id DESC
                 """,
                 (driver_id,),
             ).fetchall()
@@ -663,14 +919,30 @@ class TripRepository(_BaseRepository):
             return conn.execute(sql, tuple(params)).fetchall()
 
     def get_trip_admin(self, trip_id: int) -> sqlite3.Row | None:
-        """Полная строка поездки по id (для экрана редактирования)."""
+        """Поездка для экрана редактирования: поля trips + названия точек маршрута."""
         with self.db.transaction() as conn:
-            return conn.execute("SELECT * FROM trips WHERE id = ?", (trip_id,)).fetchone()
+            return conn.execute(
+                """
+                SELECT
+                    t.*,
+                    sp.title AS start_title,
+                    sp.district AS start_district,
+                    ep.title AS end_title,
+                    ep.district AS end_district
+                FROM trips t
+                JOIN route_points sp ON sp.id = t.start_point_id
+                JOIN route_points ep ON ep.id = t.end_point_id
+                WHERE t.id = ?
+                """,
+                (trip_id,),
+            ).fetchone()
 
     def admin_update_trip(
         self,
         trip_id: int,
         *,
+        start_point_id: int,
+        end_point_id: int,
         price_rub: int,
         seats_total: int,
         trip_date: str,
@@ -684,20 +956,39 @@ class TripRepository(_BaseRepository):
             raise ValueError("Мест должно быть не меньше одного.")
         if price_rub < 0:
             raise ValueError("Цена не может быть отрицательной.")
+        if start_point_id == end_point_id:
+            raise ValueError("Точки отправления и назначения должны различаться.")
         with self.db.immediate_transaction() as conn:
             trip = conn.execute("SELECT seats_booked FROM trips WHERE id = ?", (trip_id,)).fetchone()
             if not trip:
                 raise ValueError("Поездка не найдена.")
             if seats_total < int(trip["seats_booked"]):
                 raise ValueError(f"Нельзя задать мест меньше уже забронированных ({int(trip['seats_booked'])}).")
+            for point_id in (start_point_id, end_point_id):
+                point = conn.execute(
+                    "SELECT id FROM route_points WHERE id = ? AND kind = 'stop'",
+                    (point_id,),
+                ).fetchone()
+                if not point:
+                    raise ValueError(f"Остановка #{point_id} не найдена.")
             conn.execute(
                 """
                 UPDATE trips
-                SET price_rub = ?, seats_total = ?, trip_date = ?, departure_time = ?,
-                    time_slot = ?, status = ?
+                SET start_point_id = ?, end_point_id = ?, price_rub = ?, seats_total = ?,
+                    trip_date = ?, departure_time = ?, time_slot = ?, status = ?
                 WHERE id = ?
                 """,
-                (price_rub, seats_total, trip_date, departure_time, f"{trip_date} {departure_time}", status, trip_id),
+                (
+                    start_point_id,
+                    end_point_id,
+                    price_rub,
+                    seats_total,
+                    trip_date,
+                    departure_time,
+                    f"{trip_date} {departure_time}",
+                    status,
+                    trip_id,
+                ),
             )
 
     def admin_cancel_trip(self, trip_id: int) -> list[int]:
@@ -816,13 +1107,13 @@ class BookingRepository(_BaseRepository):
             ).fetchone()
             if passenger is None:
                 raise ValueError("Профиль пассажира не найден.")
-            min_r = trip["driver_min_rating"]
-            if min_r is not None and float(min_r) > 0:
+            min_r = effective_min_passenger_rating(trip["driver_min_rating"])
+            if min_r is not None:
                 rc = int(passenger["rating_count"] or 0)
                 ra = float(passenger["rating_avg"] or 0.0)
-                if rc >= 1 and ra + 1e-9 < float(min_r):
+                if rc >= 1 and ra + 1e-9 < min_r:
                     raise ValueError(
-                        f"Водитель принимает пассажиров с рейтингом не ниже {float(min_r):.1f}. "
+                        f"Водитель принимает пассажиров с рейтингом не ниже {min_r:.1f}. "
                         f"У тебя {ra:.1f} (оценок: {rc})."
                     )
 
@@ -878,6 +1169,10 @@ class BookingRepository(_BaseRepository):
                     t.price_rub,
                     sp.title AS start_title,
                     ep.title AS end_title,
+                    sp.latitude AS start_lat,
+                    sp.longitude AS start_lng,
+                    ep.latitude AS end_lat,
+                    ep.longitude AS end_lng,
                     u.name AS driver_name
                 FROM bookings b
                 JOIN trips t ON t.id = b.trip_id
@@ -886,6 +1181,49 @@ class BookingRepository(_BaseRepository):
                 JOIN users u ON u.id = t.driver_id
                 WHERE b.passenger_id = ?
                 ORDER BY b.id DESC
+                """,
+                (passenger_id,),
+            ).fetchall()
+
+    def list_passenger_history(self, tg_passenger_id: int) -> list[sqlite3.Row]:
+        """Прошлые/завершённые поездки пассажира (брони + данные поездки и контрагента)."""
+        with self.db.transaction() as conn:
+            passenger_id = self._get_internal_user_id(conn, tg_passenger_id)
+            return conn.execute(
+                """
+                SELECT
+                    b.id AS booking_id,
+                    b.status AS booking_status,
+                    b.cancel_reason,
+                    t.id AS trip_id,
+                    t.trip_date,
+                    t.departure_time,
+                    t.time_slot,
+                    t.price_rub,
+                    t.status AS trip_status,
+                    t.seats_total,
+                    t.seats_booked,
+                    sp.title AS start_title,
+                    ep.title AS end_title,
+                    u.name AS driver_name,
+                    u.tg_user_id AS driver_tg_user_id,
+                    u.rating_avg AS driver_rating,
+                    tr.stars AS my_rating_stars
+                FROM bookings b
+                JOIN trips t ON t.id = b.trip_id
+                JOIN route_points sp ON sp.id = t.start_point_id
+                JOIN route_points ep ON ep.id = t.end_point_id
+                JOIN users u ON u.id = t.driver_id
+                LEFT JOIN trip_ratings tr
+                    ON tr.trip_id = t.id AND tr.rater_user_id = b.passenger_id
+                WHERE b.passenger_id = ?
+                  AND (
+                    b.status != 'active'
+                    OR t.status IN ('completed', 'cancelled')
+                    OR datetime(trim(t.trip_date) || ' ' || trim(COALESCE(t.departure_time, '00:00')))
+                        <= datetime('now', 'localtime')
+                  )
+                ORDER BY t.trip_date DESC, t.departure_time DESC, b.id DESC
                 """,
                 (passenger_id,),
             ).fetchall()
@@ -1113,6 +1451,81 @@ class BookingRepository(_BaseRepository):
                 "departure_time": booking["departure_time"],
                 "time_slot": booking["time_slot"],
             }
+
+    def list_driver_booking_notification_events(self, tg_driver_id: int, *, days: int = 14) -> list[sqlite3.Row]:
+        """События броней для водителя: новые и отмены пассажиром."""
+        with self.db.transaction() as conn:
+            return conn.execute(
+                """
+                SELECT
+                    b.id AS booking_id,
+                    b.status,
+                    b.created_at,
+                    b.cancelled_at,
+                    b.cancel_reason,
+                    t.id AS trip_id,
+                    t.trip_date,
+                    t.departure_time,
+                    t.time_slot,
+                    p.name AS passenger_name,
+                    sp.title AS start_title,
+                    ep.title AS end_title
+                FROM bookings b
+                JOIN trips t ON t.id = b.trip_id
+                JOIN users dr ON dr.id = t.driver_id
+                JOIN users p ON p.id = b.passenger_id
+                JOIN route_points sp ON sp.id = t.start_point_id
+                JOIN route_points ep ON ep.id = t.end_point_id
+                WHERE dr.tg_user_id = ?
+                  AND (
+                    (
+                      b.status = 'active'
+                      AND datetime(b.created_at) >= datetime('now', ?)
+                    )
+                    OR (
+                      b.status = 'cancelled_by_passenger'
+                      AND b.cancelled_at IS NOT NULL
+                      AND datetime(b.cancelled_at) >= datetime('now', ?)
+                    )
+                  )
+                ORDER BY COALESCE(b.cancelled_at, b.created_at) DESC
+                LIMIT 40
+                """,
+                (tg_driver_id, f"-{days} days", f"-{days} days"),
+            ).fetchall()
+
+    def list_passenger_booking_notification_events(self, tg_passenger_id: int, *, days: int = 14) -> list[sqlite3.Row]:
+        """События броней для пассажира: отмены водителем."""
+        with self.db.transaction() as conn:
+            passenger_id = self._get_internal_user_id(conn, tg_passenger_id)
+            return conn.execute(
+                """
+                SELECT
+                    b.id AS booking_id,
+                    b.status,
+                    b.cancelled_at,
+                    b.cancel_reason,
+                    t.id AS trip_id,
+                    t.trip_date,
+                    t.departure_time,
+                    t.time_slot,
+                    u.name AS driver_name,
+                    sp.title AS start_title,
+                    ep.title AS end_title
+                FROM bookings b
+                JOIN trips t ON t.id = b.trip_id
+                JOIN users u ON u.id = t.driver_id
+                JOIN route_points sp ON sp.id = t.start_point_id
+                JOIN route_points ep ON ep.id = t.end_point_id
+                WHERE b.passenger_id = ?
+                  AND b.status = 'cancelled_by_driver'
+                  AND b.cancelled_at IS NOT NULL
+                  AND datetime(b.cancelled_at) >= datetime('now', ?)
+                ORDER BY b.cancelled_at DESC
+                LIMIT 40
+                """,
+                (passenger_id, f"-{days} days"),
+            ).fetchall()
 
 
 @dataclass(frozen=True)
@@ -1541,12 +1954,9 @@ class TripTemplateRepository(_BaseRepository):
         comment: str | None = None,
     ) -> int:
         with self.db.transaction() as conn:
-            driver = conn.execute(
-                "SELECT id FROM users WHERE tg_user_id = ? AND role = 'driver'",
-                (tg_driver_id,),
-            ).fetchone()
-            if not driver:
-                raise ValueError("Маршруты-шаблоны доступны только водителю.")
+            driver = conn.execute("SELECT * FROM users WHERE tg_user_id = ?", (tg_driver_id,)).fetchone()
+            if not is_approved_driver(driver):
+                raise ValueError("Маршруты-шаблоны доступны только одобренному водителю.")
             cur = conn.execute(
                 """
                 INSERT INTO trip_templates(driver_id, start_point_id, end_point_id, price_rub, seats_total, comment)

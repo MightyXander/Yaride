@@ -1,0 +1,67 @@
+[
+  {
+    "tags": {
+      "any": ["industrial", "construction_site", "medical", "sports_ground", "beach"]
+    },
+    "types": "polygon",
+    "stylers": { "visibility": "off" }
+  },
+  {
+    "tags": {
+      "any": "transit",
+      "none": ["transit_location", "transit_line", "transit_schema", "is_unclassified_transit"]
+    },
+    "stylers": { "visibility": "off" }
+  },
+  {
+    "tags": {
+      "any": "urban_area",
+      "none": [
+        "residential",
+        "industrial",
+        "cemetery",
+        "park",
+        "medical",
+        "sports_ground",
+        "beach",
+        "construction_site"
+      ]
+    },
+    "stylers": { "visibility": "off" }
+  },
+  {
+    "tags": { "any": ["food_and_drink", "shopping", "commercial_services"] },
+    "stylers": { "visibility": "off" }
+  },
+  {
+    "tags": { "any": ["traffic_light"] },
+    "stylers": { "visibility": "off" }
+  },
+  {
+    "tags": { "any": ["entrance"] },
+    "stylers": { "visibility": "off" }
+  },
+  {
+    "tags": {
+      "any": ["road"],
+      "none": ["road_1", "road_2", "road_3", "road_4", "road_5", "road_6", "road_7"]
+    },
+    "elements": "label.icon",
+    "stylers": { "visibility": "off" }
+  },
+  {
+    "tags": {
+      "any": [
+        "address",
+        "road_7",
+        "road_limited",
+        "road_unclassified",
+        "road_minor",
+        "road_construction",
+        "path"
+      ]
+    },
+    "elements": "label",
+    "stylers": { "visibility": "off" }
+  }
+]

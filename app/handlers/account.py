@@ -11,6 +11,7 @@ from aiogram.types import CallbackQuery, Message
 
 from app.chat_ui import ChatUiService
 from app.driver_license import normalize_dl_series_number, parse_expiry_date, validate_license_not_expired
+from app.driver_access import is_approved_driver, is_pending_driver
 from app.repo import Repo
 from app.states import AccountUpgrade
 from app.ui import KeyboardFactory
@@ -29,7 +30,7 @@ def _account_root_markup(user_row, keyboards: KeyboardFactory):
 
 def _mk(repo: Repo, keyboards: KeyboardFactory, tg_user_id: int):
     u = repo.users.get_user(tg_user_id)
-    return keyboards.main_keyboard(is_driver=u is not None and u["role"] == "driver")
+    return keyboards.main_keyboard(is_driver=repo.users.is_active_driver(tg_user_id))
 
 
 @router.message(F.text == "Аккаунт")
@@ -146,8 +147,11 @@ async def account_panel(
         return
 
     if action == "upgrade_driver":
-        if user["role"] != "passenger":
+        if is_approved_driver(user):
             await callback.answer("Ты уже водитель.", show_alert=True)
+            return
+        if is_pending_driver(user):
+            await callback.answer("Заявка водителя уже на модерации.", show_alert=True)
             return
         await state.set_state(AccountUpgrade.waiting_dl_series)
         await chat_ui.update_flow(
@@ -274,8 +278,8 @@ async def account_upgrade_dl_expiry(
         chat_id=message.chat.id,
         bot=message.bot,
         text=(
-            "Ты зарегистрирован как водитель. Формат ВУ проверен локально.\n"
-            "В меню доступны создание поездок и раздел «Управление»."
+            "Заявка водителя отправлена на модерацию.\n"
+            "После одобрения администратором откроются создание поездок и раздел «Управление»."
         ),
         reply_keyboard=_mk(repo, keyboards, message.from_user.id),
     )

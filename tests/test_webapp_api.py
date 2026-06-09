@@ -82,6 +82,8 @@ class WebAppApiTests(unittest.TestCase):
         user = r.json()["user"]
         self.assertEqual(user["carModel"], "Kia Rio")
         self.assertEqual(user["carPlate"], "У723КВ")
+        self.assertEqual(user["driverModerationStatus"], "pending")
+        self.assertFalse(user["isActiveDriver"])
 
         r = self.client.get("/api/catalog/districts")
         self.assertEqual(r.status_code, 200)
@@ -91,9 +93,55 @@ class WebAppApiTests(unittest.TestCase):
     def test_search_empty(self) -> None:
         r = self.client.get("/api/trips")
         self.assertEqual(r.status_code, 200)
-        self.assertEqual(r.json()["trips"], [])
+        body = r.json()
+        self.assertEqual(body["trips"], [])
+        self.assertEqual(body["searchScope"], "exact")
 
-    def _register_driver(self) -> None:
+    def _stops_pair_in_two_districts(self) -> tuple[str, str, int, int, int, int]:
+        districts = self.client.get("/api/catalog/districts").json()["districts"]
+        self.assertGreaterEqual(len(districts), 2)
+        d1, d2 = districts[0], districts[1]
+        s1a = self.client.get(f"/api/catalog/stops?district={d1}").json()["stops"]
+        s2a = self.client.get(f"/api/catalog/stops?district={d2}").json()["stops"]
+        self.assertGreaterEqual(len(s1a), 2)
+        self.assertGreaterEqual(len(s2a), 2)
+        return d1, d2, s1a[0]["id"], s1a[1]["id"], s2a[0]["id"], s2a[1]["id"]
+
+    def test_search_district_fallback_finds_trip(self) -> None:
+        self._register_driver()
+        d1, d2, start_id, alt_start_id, end_id, alt_end_id = self._stops_pair_in_two_districts()
+        r = self.client.post(
+            "/api/trips",
+            json={
+                "start_point_id": start_id,
+                "end_point_id": end_id,
+                "trip_date": "2099-03-03",
+                "departure_time": "10:00",
+                "price_rub": 200,
+                "seats_total": 2,
+            },
+        )
+        self.assertEqual(r.status_code, 201, r.text)
+        trip_id = r.json()["id"]
+
+        exact = self.client.get(f"/api/trips?start_point={alt_start_id}&end_point={alt_end_id}").json()
+        self.assertEqual(exact["trips"], [])
+        self.assertEqual(exact["districtFallback"], {"startDistrict": d1, "endDistrict": d2})
+
+        by_district = self.client.get(f"/api/trips?start_district={d1}&end_district={d2}").json()
+        self.assertEqual(by_district["searchScope"], "district")
+        self.assertTrue(any(t["id"] == trip_id for t in by_district["trips"]))
+
+    def _approve_driver(self) -> None:
+        db = Database(self.path)
+        with db.transaction() as conn:
+            conn.execute(
+                "UPDATE users SET driver_moderation_status = 'approved' WHERE tg_user_id = ?",
+                (self.settings.dev_user_id,),
+            )
+        db.close()
+
+    def _register_driver(self, *, approve: bool = True) -> None:
         r = self.client.post(
             "/api/register",
             json={
@@ -104,6 +152,8 @@ class WebAppApiTests(unittest.TestCase):
             },
         )
         self.assertEqual(r.status_code, 200, r.text)
+        if approve:
+            self._approve_driver()
 
     def _first_two_stop_ids(self) -> tuple[int, int]:
         districts = self.client.get("/api/catalog/districts").json()["districts"]
@@ -128,11 +178,20 @@ class WebAppApiTests(unittest.TestCase):
         self.assertEqual(r.status_code, 201, r.text)
         trip_id = r.json()["id"]
 
+        manage = self.client.get("/api/manage/trips").json()["trips"]
+        row = next(t for t in manage if t["id"] == trip_id)
+        self.assertIn("startLat", row)
+        self.assertIn("endLng", row)
+        self.assertIsNotNone(row["startLat"])
+        self.assertIsNotNone(row["endLng"])
+
         found = self.client.get(f"/api/trips?start_point={a}&end_point={b}").json()["trips"]
         self.assertTrue(any(t["id"] == trip_id for t in found))
 
         details = self.client.get(f"/api/trips/{trip_id}").json()
         self.assertEqual(details["comment"], "Тестовый комментарий")
+        self.assertIsNotNone(details.get("startLat"))
+        self.assertIsNotNone(details.get("endLng"))
 
     def test_template_create_list_publish_delete(self) -> None:
         self._register_driver()
@@ -176,6 +235,104 @@ class WebAppApiTests(unittest.TestCase):
         r = self.client.delete(f"/api/favorites/{fav_id}")
         self.assertEqual(r.status_code, 200)
         self.assertEqual(self.client.get("/api/favorites").json()["favorites"], [])
+
+    def test_all_stops_have_coords(self) -> None:
+        r = self.client.get("/api/catalog/stops/all")
+        self.assertEqual(r.status_code, 200, r.text)
+        stops = r.json()["stops"]
+        self.assertGreater(len(stops), 0)
+        first = stops[0]
+        for key in ("id", "title", "lat", "lng"):
+            self.assertIn(key, first)
+        self.assertIsInstance(first["lat"], (int, float))
+        self.assertIsInstance(first["lng"], (int, float))
+
+    def test_nearby_stops_by_geo(self) -> None:
+        r = self.client.get("/api/trips/nearby/by-geo?lat=57.6261&lng=39.8845")
+        self.assertEqual(r.status_code, 200, r.text)
+        stops = r.json()["stops"]
+        self.assertGreater(len(stops), 0)
+        first = stops[0]
+        self.assertIn("id", first)
+        self.assertIn("title", first)
+        self.assertIn("distanceKm", first)
+        self.assertIsInstance(first["distanceKm"], (int, float))
+
+    def test_driver_pending_cannot_create_trip_until_approved(self) -> None:
+        self._register_driver(approve=False)
+        me = self.client.get("/api/me").json()["user"]
+        self.assertEqual(me["driverModerationStatus"], "pending")
+        self.assertFalse(me["isActiveDriver"])
+
+        a, b = self._first_two_stop_ids()
+        r = self.client.post(
+            "/api/trips",
+            json={
+                "start_point_id": a,
+                "end_point_id": b,
+                "trip_date": "2099-04-04",
+                "departure_time": "09:00",
+                "price_rub": 200,
+                "seats_total": 2,
+            },
+        )
+        self.assertEqual(r.status_code, 400, r.text)
+        self.assertIn("модерации", r.json()["detail"])
+
+        self._approve_driver()
+        me = self.client.get("/api/me").json()["user"]
+        self.assertTrue(me["isActiveDriver"])
+        r = self.client.post(
+            "/api/trips",
+            json={
+                "start_point_id": a,
+                "end_point_id": b,
+                "trip_date": "2099-04-04",
+                "departure_time": "09:00",
+                "price_rub": 200,
+                "seats_total": 2,
+            },
+        )
+        self.assertEqual(r.status_code, 201, r.text)
+
+    def test_passenger_rating_threshold_persists(self) -> None:
+        self._register_driver()
+        me = self.client.get("/api/me").json()["user"]
+        self.assertIsNone(me.get("minPassengerRating"))
+
+        r = self.client.put("/api/manage/passenger-rating-threshold", json={"threshold": "4.5"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["minPassengerRating"], 4.5)
+
+        me = self.client.get("/api/me").json()["user"]
+        self.assertEqual(me["minPassengerRating"], 4.5)
+
+        r = self.client.put("/api/manage/passenger-rating-threshold", json={"threshold": "off"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertIsNone(r.json()["minPassengerRating"])
+
+        me = self.client.get("/api/me").json()["user"]
+        self.assertIsNone(me.get("minPassengerRating"))
+
+    def test_history_and_dl_fields_in_me(self) -> None:
+        self.client.post("/api/register", json={"name": "Hist", "role": "passenger"})
+        r = self.client.get("/api/me")
+        self.assertEqual(r.status_code, 200)
+        user = r.json()["user"]
+        self.assertIn("dlSeriesNumber", user)
+
+        r = self.client.get("/api/history?role=passenger")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["role"], "passenger")
+        self.assertIsInstance(r.json()["items"], list)
+
+        r = self.client.get("/api/ratings/pending")
+        self.assertEqual(r.status_code, 200)
+        self.assertIsInstance(r.json()["pending"], list)
+
+        r = self.client.get("/api/notifications")
+        self.assertEqual(r.status_code, 200)
+        self.assertIsInstance(r.json()["notifications"], list)
 
 
 if __name__ == "__main__":

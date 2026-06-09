@@ -47,13 +47,24 @@ async def trip_edit_form(request: Request, trip_id: int, repo: Repo = Depends(ge
     if not trip:
         return RedirectResponse(url="/trips?error=Поездка не найдена", status_code=303)
     bookings = repo.bookings.list_all_bookings(trip_id=trip_id, limit=200)
-    return render(request, "trip_edit.html", active="trips", trip=trip, bookings=bookings, statuses=_STATUSES)
+    stops = repo.routes.list_points_admin(limit=500)
+    return render(
+        request,
+        "trip_edit.html",
+        active="trips",
+        trip=trip,
+        bookings=bookings,
+        stops=stops,
+        statuses=_STATUSES,
+    )
 
 
 @router.post("/trips/{trip_id}")
 async def trip_update(
     request: Request,
     trip_id: int,
+    start_point_id: int = Form(...),
+    end_point_id: int = Form(...),
     price_rub: int = Form(...),
     seats_total: int = Form(...),
     trip_date: str = Form(...),
@@ -66,6 +77,8 @@ async def trip_update(
         service.update_trip(
             admin,
             trip_id,
+            start_point_id=start_point_id,
+            end_point_id=end_point_id,
             price_rub=price_rub,
             seats_total=seats_total,
             trip_date=trip_date.strip(),

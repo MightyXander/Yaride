@@ -45,7 +45,7 @@ async def process_calendar_selection(
 
     def _mk(tg_user_id: int):
         u = repo.users.get_user(tg_user_id)
-        return keyboards.main_keyboard(is_driver=u is not None and u["role"] == "driver")
+        return keyboards.main_keyboard(is_driver=repo.users.is_active_driver(tg_user_id))
 
     if target == "search":
         if "start_point" not in data or "end_point" not in data:

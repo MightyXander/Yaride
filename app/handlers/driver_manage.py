@@ -8,7 +8,8 @@ from aiogram import F, Router
 from aiogram.types import CallbackQuery, Message
 
 from app.chat_ui import ChatUiService
-from app.formatting import format_trip_row, format_trip_when, passenger_rating_hint
+from app.formatting import effective_min_passenger_rating, format_trip_row, format_trip_when, passenger_rating_hint
+from app.driver_access import is_approved_driver
 from app.repo import Repo
 from app.ui import KeyboardFactory
 
@@ -21,20 +22,22 @@ FLOW_KIND_HISTORY = "driver_history"
 
 def _mk(repo: Repo, keyboards: KeyboardFactory, tg_user_id: int):
     u = repo.users.get_user(tg_user_id)
-    return keyboards.main_keyboard(is_driver=u is not None and u["role"] == "driver")
+    return keyboards.main_keyboard(is_driver=repo.users.is_active_driver(tg_user_id))
 
 
 async def _require_driver(callback: CallbackQuery, repo: Repo):
     user = repo.users.get_user(callback.from_user.id)
-    if not user or user["role"] != "driver":
-        await callback.answer("Только для водителя.", show_alert=True)
+    if not is_approved_driver(user):
+        await callback.answer("Доступно только одобренным водителям.", show_alert=True)
         return None
     return user
 
 
 def _manage_root_text(user_row) -> str:
-    cur = user_row["min_passenger_rating"] if "min_passenger_rating" in user_row.keys() else None
-    if cur is not None and float(cur) > 0:
+    cur = effective_min_passenger_rating(
+        user_row["min_passenger_rating"] if "min_passenger_rating" in user_row.keys() else None
+    )
+    if cur is not None:
         return (
             f"Авто-отказ новым броням: средний рейтинг пассажира ниже {float(cur):.1f} "
             f"(только если у него уже есть хотя бы одна оценка)."
@@ -115,12 +118,12 @@ async def driver_manage_entry(
             reply_keyboard=_mk(repo, keyboards, message.from_user.id),
         )
         return
-    if user["role"] != "driver":
+    if not is_approved_driver(user):
         await chat_ui.close_flow(chat_id=message.chat.id, bot=message.bot)
         await chat_ui.replace_with_notice(
             chat_id=message.chat.id,
             bot=message.bot,
-            text="Раздел «Управление» только для водителей.",
+            text="Раздел «Управление» доступен только одобренным водителям.",
             reply_keyboard=_mk(repo, keyboards, message.from_user.id),
         )
         return
@@ -144,8 +147,8 @@ async def driver_manage_back_to_root(
 ) -> None:
     """`back:manage_root` — возврат из детального экрана/подменю порога в корень «Управление»."""
     user = repo.users.get_user(callback.from_user.id)
-    if not user or user["role"] != "driver":
-        await callback.answer("Только для водителя.", show_alert=True)
+    if not is_approved_driver(user):
+        await callback.answer("Доступно только одобренным водителям.", show_alert=True)
         return
     if callback.message is None:
         await callback.answer()
@@ -218,11 +221,13 @@ async def driver_thr_menu(
     user = await _require_driver(callback, repo)
     if user is None:
         return
-    cur = user["min_passenger_rating"] if "min_passenger_rating" in user.keys() else None
+    cur = effective_min_passenger_rating(
+        user["min_passenger_rating"] if "min_passenger_rating" in user.keys() else None
+    )
     text_cur = (
         f"Сейчас: новая бронь отклоняется автоматически, если у пассажира уже есть оценки "
-        f"и средний балл ниже {float(cur):.1f}."
-        if cur is not None and float(cur) > 0
+        f"и средний балл ниже {cur:.1f}."
+        if cur is not None
         else "Сейчас: автоматический отказ по рейтингу выключен."
     )
     if callback.message:

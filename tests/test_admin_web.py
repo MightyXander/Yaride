@@ -98,6 +98,30 @@ class AdminWebTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 303)
         self.assertIn("error", resp.headers["location"])
 
+    def test_points_map_and_patch_coordinates(self) -> None:
+        self._login()
+        repo = self.app.state.repo
+        point_id = int(
+            repo.routes.list_points_admin(limit=1)[0]["id"]
+        )
+        page = self.client.get("/points/map")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("points-map.js", page.text)
+        self.assertIn("initBulkMap", page.text)
+
+        resp = self.client.patch(
+            f"/points/{point_id}/coordinates",
+            json={"latitude": 57.625, "longitude": 39.875},
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.json()["ok"])
+        point = repo.routes.get_point(point_id)
+        self.assertAlmostEqual(float(point["latitude"]), 57.625, places=3)
+        audit = repo.admin.list_audit()
+        self.assertTrue(
+            any(e["action"] == "patch_coords" and int(e["entity_id"]) == point_id for e in audit)
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

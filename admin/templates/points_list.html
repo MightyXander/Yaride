@@ -2,7 +2,14 @@
 {% block title %}Точки маршрута — Yaride Admin{% endblock %}
 {% block content %}
 <h1>Точки маршрута</h1>
-<p><a class="btn" href="/points/new">+ Новая точка</a></p>
+<p>
+    <a class="btn" href="/points/new">+ Новая точка</a>
+    <a class="btn secondary" href="/points/map">Карта</a>
+</p>
+<form class="filters" method="get" action="/points">
+    <input type="text" name="q" placeholder="ID / название / район" value="{{ f_q }}">
+    <button type="submit">Поиск</button>
+</form>
 <table>
     <thead><tr><th>#</th><th>Нас. пункт</th><th>Район</th><th>Подрайон</th><th>Название</th><th>Координаты</th><th></th></tr></thead>
     <tbody>
@@ -14,10 +21,10 @@
             <td>{{ p.admin_area or '—' }}</td>
             <td>{{ p.title }}</td>
             <td>{% if p.latitude is not none %}{{ '%.4f'|format(p.latitude) }}, {{ '%.4f'|format(p.longitude) }}{% else %}—{% endif %}</td>
-            <td><a class="btn" href="/points/{{ p.id }}">Открыть</a></td>
+            <td><a class="btn" href="/points/{{ p.id }}">Изменить</a> <a class="btn secondary" href="/points/map?focus={{ p.id }}">Карта</a></td>
         </tr>
     {% else %}
-        <tr><td colspan="7" class="empty">Точек нет.</td></tr>
+        <tr><td colspan="7" class="empty">Точек не найдено.</td></tr>
     {% endfor %}
     </tbody>
 </table>
