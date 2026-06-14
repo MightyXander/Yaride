@@ -436,71 +436,11 @@
   .step-enter {
     animation: yaride-step-in 320ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
   }
-
-  @keyframes yaride-shake {
-    0%, 100% { transform: translateX(0); }
-    20% { transform: translateX(-6px); }
-    40% { transform: translateX(6px); }
-    60% { transform: translateX(-4px); }
-    80% { transform: translateX(4px); }
-  }
-  .animate-shake {
-    animation: yaride-shake 0.32s ease-in-out;
-  }
-
-  @keyframes yaride-shimmer {
-    0% { background-position: -200% 0; }
-    100% { background-position: 200% 0; }
-  }
-  .shimmer {
-    background: linear-gradient(
-      90deg,
-      color-mix(in oklab, var(--color-secondary) 100%, transparent) 0%,
-      color-mix(in oklab, var(--color-foreground) 8%, transparent) 50%,
-      color-mix(in oklab, var(--color-secondary) 100%, transparent) 100%
-    );
-    background-size: 200% 100%;
-    animation: yaride-shimmer 1.4s ease-in-out infinite;
-  }
-
-  @keyframes yaride-cta-pulse {
-    0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--brand) 0%, transparent); }
-    50% { box-shadow: 0 0 0 8px color-mix(in oklab, var(--brand) 18%, transparent); }
-  }
-  .cta-pulse {
-    animation: yaride-cta-pulse 2.4s ease-in-out infinite;
-  }
-
-  .chip-scroll {
-    display: flex;
-    gap: 0.5rem;
-    overflow-x: auto;
-    padding-bottom: 2px;
-    -ms-overflow-style: none;
-    scrollbar-width: none;
-  }
-  .chip-scroll::-webkit-scrollbar {
-    display: none;
-  }
-
-  .pull-refresh-spin {
-    animation: spin 0.8s linear infinite;
-  }
-  @keyframes spin {
-    to { transform: rotate(360deg); }
-  }
-
   @media (prefers-reduced-motion: reduce) {
     .list-stagger > *,
     .sheet-backdrop,
     .sheet-panel,
     .step-enter {
-      animation: none !important;
-    }
-    .animate-shake,
-    .shimmer,
-    .cta-pulse,
-    .pull-refresh-spin {
       animation: none !important;
     }
   }

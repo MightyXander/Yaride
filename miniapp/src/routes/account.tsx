@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, IdCard, RefreshCw, UserRound } from "lucide-react";
-import { Card, Chip, ListGroup, ListRow, RatingStars, Screen, ScreenHeader, Section } from "@/components/ui-kit";
+import { Card, ListGroup, ListRow, RatingStars, Screen, ScreenHeader, Section } from "@/components/ui-kit";
 import { meQueryOptions, ratingsReceivedQueryOptions } from "@/lib/queries";
 import { useBackButton, useTelegram } from "@/lib/telegram";
 import { useTheme, type ThemeMode } from "@/lib/theme";
@@ -53,27 +53,6 @@ function AccountScreen() {
       <ScreenHeader title="Профиль" />
       <div className="list-stagger">
       <Section>
-        <div className="grid grid-cols-2 gap-3 list-stagger">
-          <Card className="!p-4">
-            <div className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold">Поездки</div>
-            <div className="mt-1 text-[24px] font-extrabold leading-none">
-              {isDriver ? profile.tripsDriverCount : profile.tripsPassengerCount}
-            </div>
-            <div className="text-[12px] text-muted-foreground mt-1">{isDriver ? "как водитель" : "как пассажир"}</div>
-          </Card>
-          <Card className="!p-4">
-            <div className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold">Рейтинг</div>
-            <div className="mt-1 text-[24px] font-extrabold leading-none">
-              {profile.ratingCount ? profile.ratingAvg.toFixed(1) : "—"}
-            </div>
-            <div className="text-[12px] text-muted-foreground mt-1">
-              {profile.ratingCount ? `${profile.ratingCount} оценок` : "пока нет"}
-            </div>
-          </Card>
-        </div>
-      </Section>
-
-      <Section>
         <Card className="!p-5">
           <div className="flex items-center gap-4">
             <div className="size-16 rounded-full brand-gradient grid place-items-center text-[22px] font-extrabold">
@@ -102,22 +81,20 @@ function AccountScreen() {
             <ListRow icon={<IdCard className="size-4" />} title="ВУ" trailing={profile.dlSeriesNumber} />
           ) : null}
           {!isDriver ? (
-            <Card
-              className="!p-4 mb-3 border border-brand/30"
+            <ListRow
+              icon={<IdCard className="size-4" />}
+              title="Стать водителем"
               onClick={() => navigate({ to: "/license" })}
-            >
-              <div className="text-[15px] font-bold">Стать водителем</div>
-              <p className="text-[13px] text-muted-foreground mt-1">Добавьте ВУ и начните публиковать поездки.</p>
-            </Card>
-          ) : null}
-          {isDriver ? (
+              trailing={<ChevronRight className="size-4" />}
+            />
+          ) : (
             <ListRow
               icon={<IdCard className="size-4" />}
               title="Обновить ВУ"
               onClick={() => navigate({ to: "/license" })}
               trailing={<ChevronRight className="size-4" />}
             />
-          ) : null}
+          )}
         </ListGroup>
       </Section>
 

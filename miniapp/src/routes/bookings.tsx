@@ -1,10 +1,9 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import {
   BottomCTA,
   Card,
-  Chip,
   EmptyState,
   Screen,
   ScreenHeader,
@@ -72,7 +71,6 @@ function BookingsScreen() {
   const navigate = useNavigate();
   const { haptic } = useTelegram();
   const [cancelingId, setCancelingId] = useState<number | null>(null);
-  const [tab, setTab] = useState<"upcoming" | "past" | "cancelled">("upcoming");
   const bookingsQ = useQuery(bookingsQueryOptions());
 
   useBackButton(() => {
@@ -91,19 +89,7 @@ function BookingsScreen() {
   }
 
   const rows = bookingsQ.data?.bookings ?? [];
-  const filtered = useMemo(() => {
-    if (tab === "upcoming") return rows.filter((r) => r.status === "active");
-    if (tab === "past") return rows.filter((r) => r.status === "completed");
-    return rows.filter(
-      (r) => r.status === "cancelled_by_passenger" || r.status === "cancelled_by_driver",
-    );
-  }, [rows, tab]);
-
-  const tabLabels = {
-    upcoming: "Предстоящие",
-    past: "Прошлые",
-    cancelled: "Отменённые",
-  } as const;
+  const activeCount = rows.filter((r) => r.status === "active").length;
 
   if (bookingsQ.isLoading) {
     return (
@@ -127,32 +113,10 @@ function BookingsScreen() {
 
   return (
     <Screen>
-      <ScreenHeader title="Мои брони" subtitle={`Всего: ${rows.length}`} />
+      <ScreenHeader title="Мои брони" subtitle={`Активных: ${activeCount} · всего: ${rows.length}`} />
       <Section>
-        <div className="chip-scroll">
-          {(["upcoming", "past", "cancelled"] as const).map((id) => (
-            <Chip
-              key={id}
-              active={tab === id}
-              onClick={() => {
-                setTab(id);
-                haptic("selection");
-              }}
-            >
-              {tabLabels[id]}
-            </Chip>
-          ))}
-        </div>
-      </Section>
-      {filtered.length === 0 ? (
-        <EmptyState
-          title={`Нет броней: ${tabLabels[tab].toLowerCase()}`}
-          description="Выберите другую вкладку или найдите новую поездку."
-        />
-      ) : (
-        <Section>
-          <div className="space-y-3 list-stagger">
-            {filtered.map((b) => (
+        <div className="space-y-3 list-stagger">
+          {rows.map((b) => (
             <Card key={b.id} className="!p-4">
               <div className="text-[16px] font-semibold">
                 {b.fromTitle} → {b.toTitle}
@@ -184,10 +148,9 @@ function BookingsScreen() {
                 </div>
               </div>
             </Card>
-            ))}
-          </div>
-        </Section>
-      )}
+          ))}
+        </div>
+      </Section>
     </Screen>
   );
 }
