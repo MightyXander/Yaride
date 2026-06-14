@@ -59,14 +59,19 @@ Root Directory в настройках сервиса: **`miniapp`**.
 
 ### yaride-admin (опционально)
 
-Тот же Dockerfile, root `/`, Start Command: `python -m admin`.
+Тот же Dockerfile, root `/`. В Dashboard **не** нужен отдельный Start Command, если задана переменная:
 
 | Переменная | Значение |
 |------------|----------|
-| `BOT_TOKEN` | тот же токен |
+| `YARIDE_SERVICE` | **`admin`** |
+| `BOT_TOKEN` | тот же токен *(опционально, уведомления)* |
 | `DB_PATH` | `/data/yaride.db` |
 | `ADMIN_SESSION_SECRET` | тот же секрет, что у core |
 | Volume | `/data` (тот же volume) |
+
+Healthcheck: `/health` (эндпоинт есть в админке) или `/login`.
+
+Альтернатива без `YARIDE_SERVICE`: Start Command `python -m admin`, healthcheck `/login`.
 
 ## 4. Публичные домены
 

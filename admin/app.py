@@ -49,6 +49,10 @@ def create_app(settings: AdminSettings | None = None) -> FastAPI:
     app.add_middleware(SessionMiddleware, secret_key=settings.session_secret, same_site="lax")
     app.mount("/static", StaticFiles(directory=str(_BASE_DIR / "static")), name="static")
 
+    @app.get("/health")
+    async def health() -> dict[str, str]:
+        return {"status": "ok"}
+
     @app.exception_handler(RequireLogin)
     async def _require_login_handler(request: Request, exc: RequireLogin):
         return redirect_to_login()

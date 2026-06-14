@@ -19,6 +19,7 @@ COPY admin/ admin/
 COPY webapp_api/ webapp_api/
 COPY main.py .
 COPY scripts/start_prod.py scripts/start_prod.py
+COPY scripts/railway_entry.py scripts/railway_entry.py
 
 RUN mkdir -p /data
 
@@ -29,4 +30,4 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:' + (__import__('os').getenv('PORT') or __import__('os').getenv('WEBAPP_PORT') or '8080') + '/health', timeout=3)"
 
-CMD ["python", "scripts/start_prod.py"]
+CMD ["python", "scripts/railway_entry.py"]
