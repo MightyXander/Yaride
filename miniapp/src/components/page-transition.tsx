@@ -99,6 +99,9 @@ function TapBurstLayer() {
       const hit = target.closest<HTMLElement>("button, [role=\"button\"]");
       if (!hit) return;
       if (hit.hasAttribute("data-no-tap-glow")) return;
+      if (hit.closest("[data-no-tap-glow]")) return;
+      if ((hit as HTMLButtonElement).disabled) return;
+      if (hit.getAttribute("aria-disabled") === "true") return;
 
       const id = ++counter.current;
       setBursts((b) => [...b, { id, x: e.clientX, y: e.clientY }]);
