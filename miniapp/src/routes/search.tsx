@@ -534,7 +534,7 @@ function Results({
         </Section>
       ) : null}
       <Section>
-        <div className="space-y-3">
+        <div key={`${routeLabel}-${date}-${trips.length}`} className="space-y-3 list-stagger">
           {trips.map((t) => (
             <div key={t.id} className="rounded-xl">
               <TripCard

@@ -52,12 +52,17 @@ function CancelScreen({
         <textarea
           value={reason}
           onChange={(e) => setReason(e.target.value)}
+          onFocus={(e) => {
+            requestAnimationFrame(() => {
+              e.currentTarget.scrollIntoView({ block: "center", behavior: "smooth" });
+            });
+          }}
           rows={5}
           placeholder="Минимум 3 символа"
-          className="w-full p-4 rounded-2xl bg-input/60 outline-none resize-none"
+          className="w-full p-4 rounded-2xl bg-input/60 outline-none resize-none focus:bg-input transition-colors scroll-mb-32 placeholder:text-muted-foreground"
         />
       </Section>
-      <BottomCTA text="Отменить бронь" onClick={() => cancelMut.mutate()} disabled={!canCancel} variant="destructive" />
+      <BottomCTA forceInPage text="Отменить бронь" onClick={() => cancelMut.mutate()} disabled={!canCancel} variant="destructive" />
     </Screen>
   );
 }
@@ -110,13 +115,9 @@ function BookingsScreen() {
     <Screen>
       <ScreenHeader title="Мои брони" subtitle={`Активных: ${activeCount} · всего: ${rows.length}`} />
       <Section>
-        <div className="space-y-3">
+        <div className="space-y-3 list-stagger">
           {rows.map((b) => (
             <Card key={b.id} className="!p-4">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-xs text-muted-foreground">№ {b.id}</span>
-                <StatusBadge status={b.status as "active" | "cancelled_by_passenger" | "cancelled_by_driver" | "completed"} />
-              </div>
               <div className="text-[16px] font-semibold">
                 {b.fromTitle} → {b.toTitle}
               </div>
@@ -124,24 +125,27 @@ function BookingsScreen() {
                 {b.whenLabel} · {b.priceRub} ₽
               </div>
               {b.status === "active" ? <YandexRouteCard target={b} className="mt-3" /> : null}
-              <div className="mt-4 flex gap-2">
-                <button
-                  onClick={() => {
-                    haptic("light");
-                    navigate({ to: "/trip/$id", params: { id: String(b.tripId) } });
-                  }}
-                  className="h-10 px-4 rounded-xl bg-secondary text-secondary-foreground text-sm font-semibold"
-                >
-                  Подробнее
-                </button>
-                {b.status === "active" ? (
+              <div className="mt-4 flex items-center gap-2">
+                <StatusBadge status={b.status as "active" | "cancelled_by_passenger" | "cancelled_by_driver" | "completed"} />
+                <div className="ml-auto flex gap-2">
                   <button
-                    onClick={() => setCancelingId(b.id)}
-                    className="h-10 px-4 rounded-xl bg-destructive/15 text-destructive text-sm font-semibold"
+                    onClick={() => {
+                      haptic("light");
+                      navigate({ to: "/trip/$id", params: { id: String(b.tripId) } });
+                    }}
+                    className="h-10 px-4 rounded-xl bg-secondary text-secondary-foreground text-sm font-semibold press"
                   >
-                    Отменить
+                    Подробнее
                   </button>
-                ) : null}
+                  {b.status === "active" ? (
+                    <button
+                      onClick={() => setCancelingId(b.id)}
+                      className="h-10 px-4 rounded-xl bg-destructive/15 text-destructive text-sm font-semibold press"
+                    >
+                      Отменить
+                    </button>
+                  ) : null}
+                </div>
               </div>
             </Card>
           ))}

@@ -51,6 +51,7 @@ function AccountScreen() {
   return (
     <Screen>
       <ScreenHeader title="Профиль" />
+      <div className="list-stagger">
       <Section>
         <Card className="!p-5">
           <div className="flex items-center gap-4">
@@ -145,6 +146,7 @@ function AccountScreen() {
           <p className="text-[11px] text-muted-foreground mt-2">Сейчас: {resolved === "dark" ? "тёмная" : "светлая"}</p>
         </Card>
       </Section>
+      </div>
     </Screen>
   );
 }

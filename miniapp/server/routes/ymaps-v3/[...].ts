@@ -22,7 +22,7 @@ export default defineEventHandler(async (event) => {
 
   const proto =
     url.protocol === "http:" && !url.hostname.startsWith("localhost") ? "https" : url.protocol.replace(":", "");
-  const referer = `${proto}://${url.host}/`;
+  const referer = `${proto}://${url.host}`;
 
   return proxyRequest(event, target.toString(), {
     headers: {

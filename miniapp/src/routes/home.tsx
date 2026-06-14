@@ -248,7 +248,7 @@ function Home() {
 
       <section className="px-5 mt-4">
         <h3 className="text-[11px] uppercase tracking-[0.16em] font-bold text-muted-foreground px-1 mb-2.5">Что делаем</h3>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-3 list-stagger">
           {visible.map((t) => {
             const Icon = t.icon;
             const Art = t.art;

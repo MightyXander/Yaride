@@ -31,3 +31,14 @@ export const YAROSLAVL_CENTER: [number, number] = [57.6261, 39.8845];
 
 /** Центр Ярославля для Yandex Maps API 3 (lng, lat). */
 export const YAROSLAVL_CENTER_LNG_LAT: [number, number] = [39.8845, 57.6261];
+
+/** Обзор города при открытии карты выбора остановки. */
+export const STOP_MAP_DEFAULT_ZOOM = 12;
+
+/** Авто-приближение при выборе остановки — верхняя граница зума для пользователя. */
+export const STOP_MAP_FOCUS_ZOOM = 15;
+
+export const STOP_MAP_ZOOM_RANGE = {
+  min: 10,
+  max: STOP_MAP_FOCUS_ZOOM,
+} as const;

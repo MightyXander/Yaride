@@ -119,7 +119,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 function RootShell({ children }: { children: ReactNode }) {
   const runtimeApiUrl = serverApiBaseUrl();
   return (
-    <html lang="ru">
+    <html lang="ru" suppressHydrationWarning>
       <head>
         <HeadContent />
         <script src="https://telegram.org/js/telegram-web-app.js" />

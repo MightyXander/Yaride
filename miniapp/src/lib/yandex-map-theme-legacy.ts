@@ -16,5 +16,5 @@ export function mapRefererShort(hostname: string) {
 
 export function mapRefererHelp(hostname: string) {
   const lines = refererHostnames(hostname).join("\n");
-  return `Ключ → «Ограничение по HTTP Referer» (без https://, по одному на строку):\n${lines}\n\n«trycloudflare.com» покрывает любой новый tunnel *.trycloudflare.com.\n«web.telegram.org» — если Telegram подставляет свой Referer.\n\nУбедитесь, что ключ для JavaScript API 3.0. После сохранения подождите до 15 минут.`;
+  return `Ключ → «Ограничение по HTTP Referer» (без https://, по одному на строку):\n${lines}\n\n«trycloudflare.com» покрывает любой новый tunnel *.trycloudflare.com.\n«web.telegram.org» — если Telegram подставляет свой Referer.\n\nПоле «Ограничение по IP-адресам» оставьте пустым: запросы идут с IP пользователей и сервера Railway, не с 127.0.0.1.\n\nУбедитесь, что ключ для JavaScript API 3.0. После сохранения подождите до 15 минут.`;
 }

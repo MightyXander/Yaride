@@ -3,7 +3,13 @@ import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronUp, MapPin, Navigation, Search, X } from "lucide-react";
 import { Button, ScreenHeader, TextInput } from "@/components/ui-kit";
 import type { ApiMapStop } from "@/lib/api";
-import { findNearestStop, YAROSLAVL_CENTER_LNG_LAT } from "@/lib/geo";
+import {
+  findNearestStop,
+  STOP_MAP_DEFAULT_ZOOM,
+  STOP_MAP_FOCUS_ZOOM,
+  STOP_MAP_ZOOM_RANGE,
+  YAROSLAVL_CENTER_LNG_LAT,
+} from "@/lib/geo";
 import { allStopsQueryOptions } from "@/lib/queries";
 import { useTelegram } from "@/lib/telegram";
 import { useTheme } from "@/lib/theme";
@@ -31,7 +37,7 @@ type MapCamera = {
 
 const DEFAULT_CAMERA: MapCamera = {
   center: YAROSLAVL_CENTER_LNG_LAT,
-  zoom: 12,
+  zoom: STOP_MAP_DEFAULT_ZOOM,
 };
 
 function MapErrorBoundary({
@@ -203,7 +209,7 @@ export function StopMapPicker({
   const focusStop = (stop: ApiMapStop) => {
     setMapCamera({
       center: [stop.lng, stop.lat],
-      zoom: 15,
+      zoom: STOP_MAP_FOCUS_ZOOM,
       duration: 480,
       easing: "ease-in-out",
     });
@@ -346,6 +352,7 @@ export function StopMapPicker({
             <YMap
               location={mapCamera}
               mode="vector"
+              zoomRange={STOP_MAP_ZOOM_RANGE}
               style={{ width: "100%", height: "100%" }}
             >
               <YMapDefaultSchemeLayer key={theme} theme={theme} customization={customization} />

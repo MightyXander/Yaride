@@ -34,7 +34,8 @@ function FloatingNavBar({ activeTab }: { activeTab: NavTabRoot }) {
   const current = ITEMS.findIndex(({ to }) => to === activeTab);
 
   return (
-    <div className="floating-nav-root pointer-events-none fixed bottom-0 left-1/2 z-40 w-[20rem] max-w-[calc(100vw-2rem)] -translate-x-1/2 translate-z-0 overflow-visible pb-[max(14px,env(safe-area-inset-bottom,0px))] pt-3">
+    <div className="floating-nav-root pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center overflow-hidden pb-[max(14px,env(safe-area-inset-bottom,0px))] pt-3">
+      <div className="w-[20rem] max-w-[calc(100%-2rem)]">
       <nav
         aria-label="Основная навигация"
         data-no-tap-glow
@@ -91,6 +92,7 @@ function FloatingNavBar({ activeTab }: { activeTab: NavTabRoot }) {
           );
         })}
       </nav>
+      </div>
     </div>
   );
 }

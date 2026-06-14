@@ -75,41 +75,43 @@ function TripDetailScreen() {
   return (
     <Screen>
       <ScreenHeader title="Детали поездки" subtitle={`№ ${trip.id}`} />
-      <Section>
-        <Card className="!p-5">
-          <div className="flex items-center gap-3">
-            <div className="size-14 rounded-full brand-gradient grid place-items-center text-[18px] font-extrabold">
-              {(trip.driverName ?? "В").charAt(0)}
-            </div>
-            <div className="flex-1">
-              <div className="text-[17px] font-bold">{trip.driverName}</div>
-              <div className="text-[12px] text-muted-foreground flex items-center gap-1.5">
-                <Shield className="size-3.5 text-success" />
-                ★ {trip.driverRating.toFixed(1)}
-                {trip.driverTripsCount ? ` · ${trip.driverTripsCount} поездок` : ""}
+      <div className="list-stagger">
+        <Section>
+          <Card className="!p-5">
+            <div className="flex items-center gap-3">
+              <div className="size-14 rounded-full brand-gradient grid place-items-center text-[18px] font-extrabold">
+                {(trip.driverName ?? "В").charAt(0)}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-[17px] font-bold truncate">{trip.driverName}</div>
+                <div className="text-[12px] text-muted-foreground flex items-center gap-1.5">
+                  <Shield className="size-3.5 text-success" />
+                  ★ {trip.driverRating.toFixed(1)}
+                  {trip.driverTripsCount ? ` · ${trip.driverTripsCount} поездок` : ""}
+                </div>
               </div>
             </div>
-          </div>
-        </Card>
-      </Section>
-      <Section title="Маршрут">
-        <Card className="!p-5">
-          <div className="text-[16px] font-semibold">{trip.fromTitle}</div>
-          <div className="text-muted-foreground my-2">↓</div>
-          <div className="text-[16px] font-semibold">{trip.toTitle}</div>
-          <div className="mt-4 text-sm text-muted-foreground">{trip.whenLabel}</div>
-        </Card>
-        <YandexRouteCard target={trip} className="mt-3" />
-      </Section>
-      <Section>
-        <ListRowInline icon={<Users className="size-4" />} label="Свободно мест" value={`${free} / ${trip.seatsTotal}`} />
-        <ListRowInline label="Цена за место" value={`${trip.priceRub} ₽`} />
-        {trip.carModel ? (
-          <ListRowInline label="Авто" value={[trip.carModel, trip.carColor, trip.carPlate].filter(Boolean).join(", ")} />
-        ) : null}
-        {trip.comment ? <ListRowInline label="Комментарий" value={trip.comment} /> : null}
-      </Section>
-      {bookError ? <div className="mx-5 text-sm text-destructive">{bookError}</div> : null}
+          </Card>
+        </Section>
+        <Section title="Маршрут">
+          <Card className="!p-5">
+            <div className="text-[16px] font-semibold">{trip.fromTitle}</div>
+            <div className="text-muted-foreground my-2">↓</div>
+            <div className="text-[16px] font-semibold">{trip.toTitle}</div>
+            <div className="mt-4 text-sm text-muted-foreground">{trip.whenLabel}</div>
+          </Card>
+          <YandexRouteCard target={trip} className="mt-3" />
+        </Section>
+        <Section>
+          <ListRowInline icon={<Users className="size-4" />} label="Свободно мест" value={`${free} / ${trip.seatsTotal}`} />
+          <ListRowInline label="Цена за место" value={`${trip.priceRub} ₽`} />
+          {trip.carModel ? (
+            <ListRowInline label="Авто" value={[trip.carModel, trip.carColor, trip.carPlate].filter(Boolean).join(", ")} />
+          ) : null}
+          {trip.comment ? <ListRowInline label="Комментарий" value={trip.comment} /> : null}
+        </Section>
+      </div>
+      {bookError ? <div className="mx-5 text-sm text-destructive animate-fade-in">{bookError}</div> : null}
       <BottomCTA
         forceInPage
         visible={canBook}

@@ -131,7 +131,7 @@ function Onboarding() {
       ) : null}
 
       {step === "name" ? (
-        <div className="px-5 pt-10">
+        <div key="step-name" className="px-5 pt-10 step-enter">
           <h1 className="text-[28px] font-bold leading-tight">Привет!</h1>
           <p className="text-muted-foreground mt-2 mb-8">Введи имя — так тебя будут видеть в Yaride.</p>
           <Field label="Имя" error={nameError}>
@@ -151,7 +151,7 @@ function Onboarding() {
       ) : null}
 
       {step === "role" ? (
-        <div className="px-5 pt-6">
+        <div key="step-role" className="px-5 pt-6 step-enter">
           <h1 className="text-[26px] font-bold leading-tight">Выбери роль</h1>
           <div className="space-y-3 mt-6">
             {(["driver", "passenger"] as const).map((r) => (
@@ -161,10 +161,14 @@ function Onboarding() {
                   setRole(r);
                   haptic("selection");
                 }}
-                className={`!p-4 ${role === r ? "ring-2 ring-primary" : ""}`}
+                className={`!p-4 transition-shadow duration-200 ${role === r ? "ring-brand-selected" : ""}`}
               >
                 <div className="flex items-center gap-4">
-                  <div className="size-12 rounded-xl bg-accent grid place-items-center">
+                  <div
+                    className={`size-12 rounded-xl grid place-items-center transition-colors ${
+                      role === r ? "brand-gradient text-[#18170f]" : "bg-accent"
+                    }`}
+                  >
                     {r === "driver" ? <Car className="size-6" /> : <UserRound className="size-6" />}
                   </div>
                   <div>
@@ -178,7 +182,7 @@ function Onboarding() {
       ) : null}
 
       {step === "license" ? (
-        <div className="px-5 pt-6 space-y-4">
+        <div key="step-license" className="px-5 pt-6 space-y-4 step-enter">
           <h1 className="text-[26px] font-bold">Водительское удостоверение</h1>
           <Field label="Серия и номер" error={seriesError}>
             <TextInput

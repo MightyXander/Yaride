@@ -2,7 +2,12 @@ import { useRef, useEffect } from "react";
 import { YMaps, Map, Clusterer, Placemark } from "@pbe/react-yandex-maps";
 import type ymaps from "yandex-maps";
 import type { ApiMapStop } from "@/lib/api";
-import { YAROSLAVL_CENTER } from "@/lib/geo";
+import {
+  STOP_MAP_DEFAULT_ZOOM,
+  STOP_MAP_FOCUS_ZOOM,
+  STOP_MAP_ZOOM_RANGE,
+  YAROSLAVL_CENTER,
+} from "@/lib/geo";
 import type { ResolvedTheme } from "@/lib/yandex-map-theme-legacy";
 
 const clusterOptions = {
@@ -53,7 +58,7 @@ export function StopMapLegacy({
     if (!map || selectedId == null) return;
     const stop = stops.find((s) => s.id === selectedId);
     if (!stop) return;
-    map.setCenter([stop.lat, stop.lng], 15, {
+    map.setCenter([stop.lat, stop.lng], STOP_MAP_FOCUS_ZOOM, {
       duration: 450,
       timingFunction: "ease-in-out",
     });
@@ -62,10 +67,14 @@ export function StopMapLegacy({
   return (
     <YMaps query={{ apikey: mapKey, lang: "ru_RU" }}>
       <Map
-        defaultState={{ center: YAROSLAVL_CENTER, zoom: 12 }}
+        defaultState={{ center: YAROSLAVL_CENTER, zoom: STOP_MAP_DEFAULT_ZOOM }}
         width="100%"
         height="100%"
-        options={{ suppressMapOpenBlock: true }}
+        options={{
+          suppressMapOpenBlock: true,
+          minZoom: STOP_MAP_ZOOM_RANGE.min,
+          maxZoom: STOP_MAP_ZOOM_RANGE.max,
+        }}
         instanceRef={(map) => {
           mapRef.current = map ?? undefined;
           if (map) applyLegacyMapTheme(map, theme);

@@ -165,13 +165,18 @@
     font-family: var(--font-sans);
     font-feature-settings: "ss01", "cv11";
     -webkit-font-smoothing: antialiased;
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+    overscroll-behavior-x: none;
     overscroll-behavior-y: none;
   }
 
   body {
     min-height: 100vh;
     min-height: 100dvh;
-    overflow-y: scroll;
+    overflow-y: auto;
+    touch-action: pan-y;
   }
 
   h1, h2, h3 {
@@ -260,43 +265,42 @@
     animation: yaride-pop 320ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
   }
 
-  /* Page-leave: dissolve the skeleton, keep background. */
+  /* Page transitions: opacity + translate only — no scale (scale >1 causes horizontal overflow). */
   @keyframes yaride-page-out {
     0% {
       opacity: 1;
-      transform: scale(1);
-      filter: blur(0);
+      transform: translateY(0);
     }
     100% {
       opacity: 0;
-      transform: scale(0.985);
-      filter: blur(6px);
+      transform: translateY(6px);
     }
   }
   @keyframes yaride-page-in {
     0% {
       opacity: 0;
-      transform: scale(1.01) translateY(6px);
-      filter: blur(4px);
-    }
-    60% {
-      opacity: 1;
-      filter: blur(0);
+      transform: translateY(10px);
     }
     100% {
       opacity: 1;
-      transform: scale(1) translateY(0);
-      filter: blur(0);
+      transform: translateY(0);
     }
   }
   .page-leave {
     animation: yaride-page-out 240ms cubic-bezier(0.4, 0, 0.2, 1) both;
   }
   .page-enter {
-    animation: yaride-page-in 380ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+    animation: yaride-page-in 320ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
   }
   .page-shell {
     isolation: isolate;
+    max-width: 100%;
+    overflow-x: clip;
+  }
+  .page-transition-root {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: clip;
   }
 
   /* Compositor layer without clipping box-shadow. */
@@ -365,6 +369,80 @@
   }
   .stagger-in > *:nth-child(n + 7) {
     animation-delay: 340ms;
+  }
+
+  /* Cascade for list items inside an already-mounted screen. */
+  @keyframes yaride-list-item-in {
+    0% { opacity: 0; transform: translateY(8px); }
+    100% { opacity: 1; transform: translateY(0); }
+  }
+  .list-stagger > * {
+    animation: yaride-list-item-in 360ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  }
+  .list-stagger > *:nth-child(1) { animation-delay: 20ms; }
+  .list-stagger > *:nth-child(2) { animation-delay: 60ms; }
+  .list-stagger > *:nth-child(3) { animation-delay: 100ms; }
+  .list-stagger > *:nth-child(4) { animation-delay: 140ms; }
+  .list-stagger > *:nth-child(5) { animation-delay: 180ms; }
+  .list-stagger > *:nth-child(6) { animation-delay: 220ms; }
+  .list-stagger > *:nth-child(7) { animation-delay: 260ms; }
+  .list-stagger > *:nth-child(8) { animation-delay: 300ms; }
+  .list-stagger > *:nth-child(n + 9) { animation-delay: 340ms; }
+  html[data-nav-switch] .list-stagger > * { animation: none !important; }
+
+  /* Bottom sheet — backdrop fade + panel slide-up. */
+  @keyframes yaride-sheet-backdrop-in { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes yaride-sheet-backdrop-out { from { opacity: 1; } to { opacity: 0; } }
+  @keyframes yaride-sheet-panel-in {
+    0% { opacity: 0; transform: translateY(28px); }
+    100% { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes yaride-sheet-panel-out {
+    0% { opacity: 1; transform: translateY(0); }
+    100% { opacity: 0; transform: translateY(28px); }
+  }
+  .sheet-backdrop {
+    animation: yaride-sheet-backdrop-in 220ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  }
+  .sheet-backdrop[data-closing="true"] {
+    animation: yaride-sheet-backdrop-out 200ms cubic-bezier(0.4, 0, 1, 1) both;
+  }
+  .sheet-panel {
+    animation: yaride-sheet-panel-in 340ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .sheet-panel[data-closing="true"] {
+    animation: yaride-sheet-panel-out 240ms cubic-bezier(0.4, 0, 1, 1) both;
+  }
+  .sheet-handle {
+    width: 36px;
+    height: 4px;
+    border-radius: 9999px;
+    background: color-mix(in oklab, var(--color-foreground) 22%, transparent);
+    margin: 0 auto 14px;
+  }
+
+  /* Selection ring with subtle brand glow. */
+  .ring-brand-selected {
+    box-shadow:
+      0 0 0 2px var(--brand),
+      0 10px 28px -14px color-mix(in oklab, var(--brand) 60%, transparent);
+  }
+
+  /* Step-wise screen content — fade+slide in. */
+  @keyframes yaride-step-in {
+    0% { opacity: 0; transform: translateX(12px); }
+    100% { opacity: 1; transform: translateX(0); }
+  }
+  .step-enter {
+    animation: yaride-step-in 320ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .list-stagger > *,
+    .sheet-backdrop,
+    .sheet-panel,
+    .step-enter {
+      animation: none !important;
+    }
   }
 
   /* Tap burst — radial yellow glow expanding from the pressed element. */

@@ -66,7 +66,7 @@ export default defineConfig({
                   req.headers["x-forwarded-proto"] === "https" ||
                   (!host.startsWith("localhost") && !host.startsWith("127.0.0.1"));
                 const scheme = secure ? "https" : "http";
-                proxyReq.setHeader("Referer", `${scheme}://${host}/`);
+                proxyReq.setHeader("Referer", `${scheme}://${host}`);
               }
 
               // ymaps3 подгружает модули без ?lang= — Яндекс отвечает 400 без него.

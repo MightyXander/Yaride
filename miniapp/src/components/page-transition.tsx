@@ -33,9 +33,15 @@ export function PageTransition({ children }: { children: ReactNode }) {
     delete document.documentElement.dataset.navSwitch;
   }, [pathname, instantTabSwitch]);
 
+  useLayoutEffect(() => {
+    document.documentElement.scrollLeft = 0;
+    document.body.scrollLeft = 0;
+    window.scrollTo({ top: window.scrollY, left: 0 });
+  }, [pathname]);
+
   return (
     <>
-      <div className="relative min-h-dvh bg-background">
+      <div className="page-transition-root relative min-h-dvh bg-background">
         <AnimatePresence initial={false}>
           <PageLayer key={pathname} routePath={pathname} instant={instantTabSwitch}>
             {children}
@@ -106,7 +112,7 @@ function TapBurstLayer() {
   }, []);
 
   return (
-    <div aria-hidden className="pointer-events-none">
+    <div aria-hidden className="pointer-events-none fixed inset-0 z-[9998] overflow-hidden">
       {bursts.map((b) => (
         <span
           key={b.id}

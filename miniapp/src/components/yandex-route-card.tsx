@@ -21,14 +21,11 @@ export function YandexRouteCard({ target, className = "" }: { target: YandexRout
     <div className={className}>
       <Card onClick={route.loading ? undefined : route.open} className="!p-4">
         <div className="flex items-center gap-3">
-          <div className="size-11 rounded-2xl brand-gradient grid place-items-center text-[#18170f]">
-            <Navigation className="size-5" />
+          <div className="h-11 w-14 shrink-0 rounded-2xl brand-gradient grid place-items-center text-[#18170f]">
+            <Navigation className="h-5 w-7" strokeWidth={2.25} />
           </div>
           <div className="min-w-0 text-left">
             <div className="font-semibold">{route.loading ? "Строим маршрут…" : "Маршрут в Яндекс"}</div>
-            <div className="text-xs text-muted-foreground truncate">
-              Вы → {target.fromTitle} → {target.toTitle} · откроется в Картах
-            </div>
           </div>
         </div>
       </Card>

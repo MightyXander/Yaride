@@ -333,7 +333,7 @@ function CreateScreen() {
       setStep("from");
       return;
     }
-    const idx = steps.indexOf(step as Exclude<Step, "done">);
+    const idx = newSteps.indexOf(step as (typeof newSteps)[number]);
     if (idx <= 0) {
       setStep("start");
       setWizardMode(null);

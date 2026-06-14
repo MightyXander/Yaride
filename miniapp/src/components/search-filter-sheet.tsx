@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { SlidersHorizontal } from "lucide-react";
 import { Chip } from "@/components/ui-kit";
 import { TIME_SLOTS } from "@/lib/time-slots";
@@ -51,11 +51,41 @@ export function SearchFilterSheet({
   onClose: () => void;
 }) {
   const [draft, setDraft] = useState<SearchTripFilters>(filters);
+  const [closing, setClosing] = useState(false);
+
+  const close = useCallback(() => {
+    if (closing) return;
+    setClosing(true);
+    window.setTimeout(onClose, 220);
+  }, [closing, onClose]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [close]);
 
   return (
-    <div className="fixed inset-0 z-50 bg-foreground/30 grid place-items-end">
-      <button type="button" className="absolute inset-0" aria-label="Закрыть" onClick={onClose} />
-      <div className="relative w-full bg-card rounded-t-3xl p-5 pb-[calc(env(safe-area-inset-bottom)+20px)] max-h-[85dvh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 grid place-items-end">
+      <div
+        data-closing={closing}
+        className="sheet-backdrop absolute inset-0 bg-foreground/40 backdrop-blur-[2px]"
+      />
+      <button
+        type="button"
+        className="absolute inset-0"
+        aria-label="Закрыть"
+        onClick={close}
+      />
+      <div
+        data-closing={closing}
+        role="dialog"
+        aria-modal="true"
+        className="sheet-panel relative w-full bg-card text-card-foreground rounded-t-3xl px-5 pt-3 pb-[calc(env(safe-area-inset-bottom)+20px)] max-h-[85dvh] overflow-y-auto shadow-[0_-20px_60px_-20px_rgba(0,0,0,0.5)]"
+      >
+        <div className="sheet-handle" aria-hidden />
         <h3 className="text-xl font-bold">Фильтр</h3>
         <p className="text-sm text-muted-foreground mt-1">Сузить список по времени и местам</p>
 
@@ -104,7 +134,7 @@ export function SearchFilterSheet({
             type="button"
             onClick={() => {
               onApply(EMPTY_SEARCH_FILTERS);
-              onClose();
+              close();
             }}
             className="h-12 rounded-xl bg-secondary text-secondary-foreground font-semibold press"
           >
@@ -114,9 +144,9 @@ export function SearchFilterSheet({
             type="button"
             onClick={() => {
               onApply(draft);
-              onClose();
+              close();
             }}
-            className="h-12 rounded-xl brand-gradient font-bold press"
+            className="h-12 rounded-xl brand-gradient brand-glow font-bold press"
           >
             Применить
           </button>

@@ -20,7 +20,7 @@ function readFromHash(): string {
 
 function readLive(): string {
   if (typeof window === "undefined") return "";
-  return window.Telegram?.WebApp?.initData ?? "";
+  return (window as any).Telegram?.WebApp?.initData ?? "";
 }
 
 function persist(value: string) {

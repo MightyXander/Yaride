@@ -26,26 +26,28 @@ cp miniapp/.env.example miniapp/.env
 
 ## Запуск локально
 
-**1. API** (из корня репозитория):
+**Одной командой** (из корня репозитория):
 
 ```bash
-py -3 -m webapp_api
-# http://127.0.0.1:8080
+py -3 scripts/dev.py
 ```
 
-**2. Фронт** (из `miniapp/`):
+Поднимает API `:8080`, админку `:8000`, фронт `:5174` и бота. Стабильный адрес фронта: `http://yaride.local:5174` (после `py -3 scripts/setup_hosts.py`).
+
+**По отдельности:**
 
 ```bash
-cd miniapp
-npm install   # или: bun install
-npm run dev   # http://127.0.0.1:5173
+py -3 -m webapp_api    # :8080
+py -3 -m admin         # :8000
+cd miniapp && npm run dev   # :5174
+py -3 main.py
 ```
 
 Vite проксирует `/api` → `http://127.0.0.1:8080`.
 
-**3. Браузер без Telegram:** задайте `WEBAPP_DEV_USER_ID=900001` в корневом `.env`.
+**Браузер без Telegram:** `WEBAPP_DEV_USER_ID=900001` в корневом `.env`.
 
-**4. Одобрение водителя (dev):** после регистрации как driver — `py -3 -m admin` → пользователи → одобрить.
+**Одобрение водителя (dev):** `http://127.0.0.1:8000` → пользователи → одобрить.
 
 ## Сборка
 
