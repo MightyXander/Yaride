@@ -48,11 +48,13 @@ Root Directory в настройках сервиса: **`miniapp`**.
 
 | Переменная | Значение |
 |------------|----------|
-| `VITE_API_URL` | `https://<домен-api>.up.railway.app` |
+| `VITE_API_URL` | `https://<домен-api>.up.railway.app` *(опц.)* |
+| `API_URL` | `https://<домен-api>.up.railway.app` *(runtime, рекомендуется)* |
 | `VITE_YANDEX_MAPS_KEY` | ключ JS API Яндекс.Карт |
 | `NITRO_HOST` | `0.0.0.0` |
 
-`VITE_*` — **build-time**: после смены пересоберите деплой (Redeploy).
+`API_URL` — **runtime**: miniapp проксирует `/api/*` на core без пересборки.
+Если `VITE_API_URL` не задан при сборке, фронт ходит на относительный `/api` (через proxy).
 
 ### yaride-admin (опционально)
 

@@ -1,8 +1,7 @@
 /** Typed HTTP client for Yaride Mini App API (Telegram X-Init-Data auth). */
 
 import { bootstrapInitData, getInitData, refreshInitData, waitForInitData } from "./init-data";
-
-const BASE = import.meta.env.VITE_API_URL ?? "";
+import { apiBaseUrl } from "./runtime-api-url";
 
 let initDataProvider: () => string = getInitData;
 
@@ -29,7 +28,7 @@ async function request<T>(path: string, options: RequestInit = {}, attempt = 0):
   };
   if (initData) headers["X-Init-Data"] = initData;
 
-  const res = await fetch(`${BASE}${path}`, { ...options, headers });
+  const res = await fetch(`${apiBaseUrl()}${path}`, { ...options, headers });
   if (res.status === 401 && attempt < 2) {
     await waitForInitData(2500);
     return request<T>(path, options, attempt + 1);

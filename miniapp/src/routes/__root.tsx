@@ -15,6 +15,7 @@ import { TelegramProvider } from "../lib/telegram";
 import { ThemeProvider } from "../lib/theme";
 import { PageTransition } from "../components/page-transition";
 import { FloatingNav } from "../components/floating-nav";
+import { serverApiBaseUrl } from "../lib/runtime-api-url";
 
 function NotFoundComponent() {
   return (
@@ -83,7 +84,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       {
         name: "viewport",
         content:
-          "width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover",
+          "width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover",
       },
       { name: "theme-color", content: "#0f0f12" },
       { title: "Yaride — попутчики по Ярославлю" },
@@ -116,11 +117,19 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 });
 
 function RootShell({ children }: { children: ReactNode }) {
+  const runtimeApiUrl = serverApiBaseUrl();
   return (
     <html lang="ru">
       <head>
         <HeadContent />
         <script src="https://telegram.org/js/telegram-web-app.js" />
+        {runtimeApiUrl ? (
+          <script
+            dangerouslySetInnerHTML={{
+              __html: `window.__YARIDE_API_URL__=${JSON.stringify(runtimeApiUrl)};`,
+            }}
+          />
+        ) : null}
         <script
           dangerouslySetInnerHTML={{
             __html: `(function(){try{var tg=window.Telegram&&window.Telegram.WebApp;var v=localStorage.getItem('yaride.theme.v1');var mode=(v==='light'||v==='dark'||v==='system')?v:'system';var r=mode;if(mode==='system'){r=(tg&&tg.colorScheme)||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');}document.documentElement.classList.toggle('dark',r==='dark');document.documentElement.dataset.theme=r;}catch(e){document.documentElement.classList.add('dark');}})();`,

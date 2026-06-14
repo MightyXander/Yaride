@@ -8,10 +8,12 @@ RUN npm ci
 
 COPY . .
 
-# VITE_* подставляются на этапе сборки (задайте в Railway Variables сервиса miniapp).
+# VITE_* и API_URL подставляются на этапе сборки (Railway Variables сервиса miniapp).
 ARG VITE_API_URL=
+ARG API_URL=
 ARG VITE_YANDEX_MAPS_KEY=
 ENV VITE_API_URL=$VITE_API_URL \
+    API_URL=$API_URL \
     VITE_YANDEX_MAPS_KEY=$VITE_YANDEX_MAPS_KEY
 
 RUN npm run build
@@ -23,6 +25,8 @@ WORKDIR /app
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     NITRO_HOST=0.0.0.0
+
+# Runtime: URL yaride-core (подставляется в HTML, см. src/lib/runtime-api-url.ts).
 
 COPY --from=build /app/.output ./.output
 COPY --from=build /app/package.json ./package.json
