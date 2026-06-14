@@ -1,0 +1,13 @@
+# Конфиг Railway для отдельного сервиса админки (root directory = /).
+# Start command в Dashboard: python -m admin
+# Тот же Dockerfile и Volume /data, что у yaride-core.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "python -m admin"
+healthcheckPath = "/login"
+healthcheckTimeout = 120
+restartPolicyType = "ON_FAILURE"

@@ -29,6 +29,15 @@ def _split_origins(raw: str | None) -> list[str]:
     return [p.strip() for p in raw.split(",") if p.strip()]
 
 
+def _resolve_port() -> int:
+    """Railway задаёт PORT; локально — WEBAPP_PORT."""
+    for key in ("PORT", "WEBAPP_PORT"):
+        raw = os.getenv(key, "").strip()
+        if raw:
+            return int(raw)
+    return 8080
+
+
 def load_webapp_settings() -> WebAppSettings:
     load_dotenv()
     token = os.getenv("BOT_TOKEN", "").strip()
@@ -40,7 +49,7 @@ def load_webapp_settings() -> WebAppSettings:
         bot_token=token,
         db_path=db_path,
         host=os.getenv("WEBAPP_HOST", "0.0.0.0").strip() or "0.0.0.0",
-        port=int(os.getenv("WEBAPP_PORT", "8080").strip() or "8080"),
+        port=_resolve_port(),
         cors_origins=_split_origins(os.getenv("WEBAPP_CORS_ORIGINS")),
         init_data_max_age_s=int(os.getenv("WEBAPP_INIT_DATA_MAX_AGE_S", str(24 * 3600))),
         dev_user_id=int(dev_raw) if dev_raw else None,

@@ -1,0 +1,12 @@
+# Конфиг Railway для сервиса yaride-core (root directory = /).
+# Админка как отдельный сервис: см. deploy/railway/admin.railway.toml
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 180
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5

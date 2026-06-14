@@ -27,6 +27,7 @@ function resolveYandexMapsKey(mode = process.env.MODE || "development"): string 
 const yandexMapsKey = resolveYandexMapsKey();
 
 export default defineConfig({
+  nitro: { preset: "node-server" },
   tanstackStart: {
     server: { entry: "server" },
   },
@@ -35,10 +36,16 @@ export default defineConfig({
       "import.meta.env.VITE_YANDEX_MAPS_KEY": JSON.stringify(yandexMapsKey),
     },
     server: {
-      port: 5174,
+      port: Number(process.env.MINIAPP_PORT || 5174),
       strictPort: true,
-      // Cloudflare quick tunnel — новый *.trycloudflare.com на каждый запуск
-      allowedHosts: [".trycloudflare.com"],
+      host: true,
+      allowedHosts: [
+        "localhost",
+        "127.0.0.1",
+        process.env.YARIDE_DEV_HOST || "yaride.local",
+        ".yaride.local",
+        ".trycloudflare.com",
+      ],
       proxy: {
         "/api": { target: "http://127.0.0.1:8080", changeOrigin: true },
         "/health": { target: "http://127.0.0.1:8080", changeOrigin: true },

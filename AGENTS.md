@@ -12,6 +12,18 @@ Yaride MVP is a Telegram carpool bot (aiogram 3.x) for Yaroslavl, Russia. It is 
 
 ### Running the application
 
+**Production (Railway):** см. `docs/operations/railway-deploy.md` — три сервиса (core API+бот, miniapp, опц. admin), Volume `/data` для `yaride.db`.
+
+**Всё сразу (бот + API + админка + miniapp):**
+
+```bash
+py -3 scripts/dev.py
+# Windows: двойной клик start.bat
+# Один раз (от админа): py -3 scripts/setup_hosts.py  →  http://yaride.local:5174
+```
+
+**Только бот:**
+
 ```bash
 python3 main.py
 # Windows (if `python3` is not on PATH):

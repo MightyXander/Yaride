@@ -30,11 +30,13 @@ def load_admin_settings() -> AdminSettings:
         secret = secrets.token_urlsafe(32)
     bot_token = os.getenv("BOT_TOKEN", "").strip() or None
     notify_enabled = _env_bool("ADMIN_NOTIFY_USERS", True) and bot_token is not None
+    port_raw = os.getenv("PORT", "").strip() or os.getenv("ADMIN_PORT", "").strip()
+    default_host = "0.0.0.0" if os.getenv("PORT", "").strip() else "127.0.0.1"
     return AdminSettings(
         db_path=db_path,
         session_secret=secret,
-        host=os.getenv("ADMIN_HOST", "127.0.0.1").strip() or "127.0.0.1",
-        port=_env_int("ADMIN_PORT", 8000),
+        host=os.getenv("ADMIN_HOST", default_host).strip() or default_host,
+        port=int(port_raw) if port_raw else 8000,
         bot_token=bot_token,
         notify_enabled=notify_enabled,
     )
