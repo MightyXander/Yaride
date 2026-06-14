@@ -208,7 +208,7 @@ function Home() {
           onClick={() => {
             if (heroCta.to === "/create") clearCreateWizardDraft();
           }}
-          className="block relative overflow-hidden rounded-3xl brand-gradient brand-glow p-5 press-strong"
+          className="block relative z-0 overflow-hidden rounded-3xl brand-gradient border border-brand/20 p-5 press-strong"
         >
           <div className="text-[11px] font-bold tracking-[0.18em] uppercase opacity-70">
             {isDriver && activeDriver ? "Поехали" : "Куда сегодня"}
@@ -223,7 +223,7 @@ function Home() {
         </Link>
       </section>
 
-      <section className="px-5 mt-3 grid grid-cols-2 gap-3">
+      <section className="relative z-10 px-5 mt-4 grid grid-cols-2 gap-3">
         <div className="surface-elevated p-4">
           <div className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold">Рейтинг</div>
           <div className="mt-1 flex items-baseline gap-1.5">
@@ -246,7 +246,7 @@ function Home() {
         </div>
       </section>
 
-      <section className="px-5 mt-4">
+      <section className="relative z-10 px-5 mt-4">
         <h3 className="text-[11px] uppercase tracking-[0.16em] font-bold text-muted-foreground px-1 mb-2.5">Что делаем</h3>
         <div className="grid grid-cols-2 gap-3 list-stagger">
           {visible.map((t) => {

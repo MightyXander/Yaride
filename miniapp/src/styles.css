@@ -110,7 +110,8 @@
   --gradient-brand: linear-gradient(135deg, #ffe14a 0%, #ffd000 100%);
   --gradient-brand-soft: linear-gradient(160deg, #fff6b3 0%, #ffdd2d 100%);
   --gradient-dark: linear-gradient(180deg, #1f1f23 0%, #131316 100%);
-  --shadow-brand: 0 14px 40px -16px color-mix(in oklab, var(--brand) 55%, transparent);
+  --shadow-brand: 0 8px 24px -14px color-mix(in oklab, var(--brand) 40%, transparent);
+  --shadow-brand-soft: 0 2px 10px -8px color-mix(in oklab, var(--brand) 22%, transparent);
   --shadow-elevated: 0 10px 30px -18px rgba(0,0,0,0.55);
 }
 
@@ -206,6 +207,10 @@
 
 @utility brand-glow {
   box-shadow: var(--shadow-brand);
+}
+
+@utility brand-glow-soft {
+  box-shadow: var(--shadow-brand-soft);
 }
 
 @utility hairline-t {
