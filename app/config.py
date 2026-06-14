@@ -18,6 +18,7 @@ class Settings:
 
     bot_token: str
     db_path: str
+    database_url: str | None = None
     seats_choices: tuple[int, ...] = field(default_factory=lambda: (2, 3, 4))
     price_choices: tuple[int, ...] = field(default_factory=lambda: (100, 150, 200))
     time_step_minutes: int = 30
@@ -71,16 +72,24 @@ def _env_int_tuple(name: str, default: tuple[int, ...]) -> tuple[int, ...]:
     return _parse_int_tuple(raw, name=name)
 
 
+def load_database_url() -> str | None:
+    load_dotenv()
+    raw = os.getenv("DATABASE_URL", "").strip()
+    return raw or None
+
+
 def load_settings() -> Settings:
     """Собрать Settings из переменных окружения; вызывается один раз при старте через build_container."""
     load_dotenv()
     token = os.getenv("BOT_TOKEN", "").strip()
     db_path = os.getenv("DB_PATH", "yaride.db").strip() or "yaride.db"
+    database_url = load_database_url()
     if not token:
         raise RuntimeError("BOT_TOKEN is not set. Add it to environment or .env file.")
     return Settings(
         bot_token=token,
         db_path=db_path,
+        database_url=database_url,
         seats_choices=_env_int_tuple("SEATS_CHOICES", (2, 3, 4)),
         price_choices=_env_int_tuple("PRICE_CHOICES", (100, 150, 200)),
         time_step_minutes=_env_int("TIME_STEP_MINUTES", 30),

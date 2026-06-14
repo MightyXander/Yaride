@@ -5,10 +5,10 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.db import Database
+from app.database import open_database
 from app.repo import Repo
 from webapp_api.bot_notify import BotNotifier
 from webapp_api.config import WebAppSettings, load_webapp_settings
@@ -33,7 +33,7 @@ def create_app(settings: WebAppSettings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        db = Database(settings.db_path)
+        db = open_database(database_url=settings.database_url, db_path=settings.db_path)
         db.init_schema()
         app.state.settings = settings
         app.state.db = db
@@ -56,8 +56,10 @@ def create_app(settings: WebAppSettings | None = None) -> FastAPI:
     )
 
     @app.get("/health")
-    def health() -> dict:
-        return {"status": "ok"}
+    def health(request: Request) -> dict:
+        db = request.app.state.db
+        backend = "postgresql" if db.__class__.__name__ == "PostgresDatabase" else "sqlite"
+        return {"status": "ok", "database": backend}
 
     app.include_router(me.router)
     app.include_router(catalog.router)

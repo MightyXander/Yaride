@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from app.cache import invalidate_trip_search_cache
 from app.repo import Repo
 from webapp_api.auth import TelegramAuthUser
 from webapp_api.bot_notify import BotNotifier
@@ -35,6 +36,8 @@ async def create_booking(
         booking_id = repo.bookings.create_booking(auth.tg_user_id, body.trip_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    invalidate_trip_search_cache()
 
     trip = repo.trips.get_trip_public_card(body.trip_id)
     if trip:
@@ -73,5 +76,6 @@ async def cancel_booking(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    invalidate_trip_search_cache()
     await notifier.booking_cancelled_by_passenger(payload)
     return {"ok": True}

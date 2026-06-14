@@ -17,12 +17,14 @@ class AdminSettings:
     port: int
     bot_token: str | None
     notify_enabled: bool
+    database_url: str | None = None
 
 
 def load_admin_settings() -> AdminSettings:
     """Конфиг из окружения. Сессионный секрет берём из ADMIN_SESSION_SECRET; иначе генерируем эфемерный."""
     load_dotenv()
     db_path = os.getenv("DB_PATH", "yaride.db").strip() or "yaride.db"
+    database_url = os.getenv("DATABASE_URL", "").strip() or None
     secret = os.getenv("ADMIN_SESSION_SECRET", "").strip()
     ephemeral = not secret
     if ephemeral:
@@ -34,6 +36,7 @@ def load_admin_settings() -> AdminSettings:
     default_host = "0.0.0.0" if os.getenv("PORT", "").strip() else "127.0.0.1"
     return AdminSettings(
         db_path=db_path,
+        database_url=database_url,
         session_secret=secret,
         host=os.getenv("ADMIN_HOST", default_host).strip() or default_host,
         port=int(port_raw) if port_raw else 8000,

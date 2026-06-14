@@ -14,13 +14,10 @@ class WebAppSettings:
     db_path: str
     host: str = "0.0.0.0"
     port: int = 8080
-    # Разрешённые источники для CORS (адрес фронтенда: vite dev / туннель / прод).
     cors_origins: list[str] = field(default_factory=lambda: ["*"])
-    # initData действителен ограниченное время — защита от переиспользования старых данных.
     init_data_max_age_s: int = 24 * 3600
-    # Dev-режим: если задан WEBAPP_DEV_USER_ID, при отсутствии initData используем этого пользователя
-    # (для запуска фронта в обычном браузере без Telegram). В проде оставляем пустым.
     dev_user_id: int | None = None
+    database_url: str | None = None
 
 
 def _split_origins(raw: str | None) -> list[str]:
@@ -44,10 +41,12 @@ def load_webapp_settings() -> WebAppSettings:
     if not token:
         raise RuntimeError("BOT_TOKEN is not set. Add it to environment or .env file.")
     db_path = os.getenv("DB_PATH", "yaride.db").strip() or "yaride.db"
+    database_url = os.getenv("DATABASE_URL", "").strip() or None
     dev_raw = os.getenv("WEBAPP_DEV_USER_ID", "").strip()
     return WebAppSettings(
         bot_token=token,
         db_path=db_path,
+        database_url=database_url,
         host=os.getenv("WEBAPP_HOST", "0.0.0.0").strip() or "0.0.0.0",
         port=_resolve_port(),
         cors_origins=_split_origins(os.getenv("WEBAPP_CORS_ORIGINS")),

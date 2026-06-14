@@ -80,8 +80,9 @@ def main() -> int:
     skip_admin = _env_bool("YARIDE_SKIP_ADMIN")
     bot_fatal = _env_bool("YARIDE_BOT_FATAL", default=True)
 
-    db_path = Path(os.environ["DB_PATH"])
-    db_path.parent.mkdir(parents=True, exist_ok=True)
+    if not os.getenv("DATABASE_URL", "").strip():
+        db_path = Path(os.environ["DB_PATH"])
+        db_path.parent.mkdir(parents=True, exist_ok=True)
 
     if not os.getenv("BOT_TOKEN", "").strip() and not skip_bot:
         print("Ошибка: BOT_TOKEN не задан", file=sys.stderr)

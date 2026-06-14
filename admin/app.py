@@ -15,7 +15,7 @@ from admin.config import AdminSettings, load_admin_settings
 from admin.deps import RequireLogin, redirect_to_login
 from admin.notifications import Notifier
 from admin.routes import audit, auth_routes, bookings, dashboard, points, ratings, trips, users
-from app.db import Database
+from app.database import open_database
 from app.repo import Repo
 from app.services.admin_service import AdminService
 
@@ -30,7 +30,7 @@ def create_app(settings: AdminSettings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        db = Database(settings.db_path)
+        db = open_database(database_url=settings.database_url, db_path=settings.db_path)
         db.init_schema()
         repo = Repo(db)
         app.state.settings = settings
@@ -50,8 +50,10 @@ def create_app(settings: AdminSettings | None = None) -> FastAPI:
     app.mount("/static", StaticFiles(directory=str(_BASE_DIR / "static")), name="static")
 
     @app.get("/health")
-    async def health() -> dict[str, str]:
-        return {"status": "ok"}
+    async def health(request: Request) -> dict[str, str]:
+        db = request.app.state.db
+        backend = "postgresql" if db.__class__.__name__ == "PostgresDatabase" else "sqlite"
+        return {"status": "ok", "database": backend}
 
     @app.exception_handler(RequireLogin)
     async def _require_login_handler(request: Request, exc: RequireLogin):

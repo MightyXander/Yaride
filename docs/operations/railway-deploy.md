@@ -8,7 +8,39 @@
 | **yaride-miniapp** | `miniapp` | Mini App | Фронт Telegram Web App |
 | **yaride-admin** (опц.) | `/` | Админка | Модерация |
 
-Общий **Volume** `yaride-data` смонтирован в `/data` у **yaride-core** и **yaride-admin**.
+**База данных:** PostgreSQL (плагин Railway). Один `DATABASE_URL` на **yaride-core** и **yaride-admin** — общие данные без синхронизации volume.
+
+## Сеть (Railway Networking)
+
+Yaride **не** подключает miniapp к Postgres напрямую. Схема:
+
+```text
+Telegram / браузер
+    → yaride-miniapp (публичный домен)
+    → yaride-core API (публичный домен, /api/*)
+    → PostgreSQL (приватная сеть Railway, Variable Reference)
+
+Админка:
+    браузер → yaride-admin (публичный домен) → PostgreSQL (тот же DATABASE_URL)
+```
+
+| Кто | С кем говорит | Как |
+|-----|---------------|-----|
+| **miniapp** | **yaride-core** | `API_URL` = публичный URL core (`https://….up.railway.app`) |
+| **yaride-core** | **Postgres** | `DATABASE_URL` = `${{ Postgres.DATABASE_URL }}` |
+| **yaride-admin** | **Postgres** | `DATABASE_URL` = `${{ Postgres.DATABASE_URL }}` |
+| **Postgres** | — | Публичный `DATABASE_PUBLIC_URL` только для миграции с локального ПК |
+
+**Private networking** ([документация](https://docs.railway.com/networking)): сервисы в одном проекте ходят в БД по внутреннему хосту (`RAILWAY_PRIVATE_DOMAIN`). В Variable Reference это уже подставлено — **не** копируйте `DATABASE_PUBLIC_URL` в core/admin.
+
+Проверка после деплоя:
+
+```text
+GET https://<core-domain>/health   → {"status":"ok","database":"postgresql"}
+GET https://<admin-domain>/health  → {"status":"ok","database":"postgresql"}
+```
+
+Если `"database":"sqlite"` — сервис всё ещё пишет в файл на volume, не в Postgres.
 
 ## 1. Подготовка репозитория
 
@@ -19,13 +51,26 @@
 1. [railway.app](https://railway.app) → **New Project** → **Deploy from GitHub repo** → выберите `Yaride`.
 2. Первый сервис переименуйте в `yaride-core`.
 
-### Volume (обязательно)
+### PostgreSQL (обязательно в проде)
 
-1. Сервис `yaride-core` → **Volumes** → **Add Volume**.
-2. Mount path: `/data`
-3. Тот же volume подключите к `yaride-admin` (если используете).
+1. Проект → **Add Plugin** → **PostgreSQL** (сервис обычно называется **Postgres**).
+2. На **yaride_core** и **yaride_admin** → Variables → **+ New Variable**:
+   - имя: `DATABASE_URL`
+   - значение: `${{ Postgres.DATABASE_URL }}`  
+     (через UI: **Reference** → сервис Postgres → переменная `DATABASE_URL`)
+3. **Volume для БД не нужен** — удалите `/data` volume у admin (и у core, если только для SQLite).
 
-Без volume файл `yaride.db` **теряется при каждом редеплое**.
+Код читает обычную переменную окружения `DATABASE_URL` (`app/database.py`); синтаксис `${{ … }}` — только в Railway Dashboard, не в Python.
+
+Локально без Postgres: `DB_PATH=yaride.db` (SQLite по умолчанию).
+
+### Миграция данных SQLite → Postgres (один раз)
+
+```bash
+py -3 scripts/migrate_sqlite_to_postgres.py --source yaride.db --target "<DATABASE_PUBLIC_URL>" --wipe
+```
+
+`DATABASE_PUBLIC_URL` — с локального ПК. На сервисах Railway — `${{ Postgres.DATABASE_URL }}`.
 
 ## 3. Переменные окружения
 
@@ -34,100 +79,77 @@
 | Переменная | Значение |
 |------------|----------|
 | `BOT_TOKEN` | токен от BotFather |
-| `DB_PATH` | `/data/yaride.db` |
+| `DATABASE_URL` | `${{ Postgres.DATABASE_URL }}` |
 | `ADMIN_SESSION_SECRET` | случайная строка (32+ символов) |
 | `WEBAPP_CORS_ORIGINS` | `https://<домен-miniapp>.up.railway.app` |
 | `WEBAPP_DEV_USER_ID` | *(пусто в проде)* |
 | `YARIDE_SKIP_ADMIN` | `1` *(если админка — отдельный сервис)* |
+| `REDIS_URL` | *(опционально, этап 2 — кэш)* |
 
 Railway сам задаёт `PORT` — API слушает его автоматически.
 
 ### yaride-miniapp
 
-Root Directory в настройках сервиса: **`miniapp`**.
+Root Directory: **`miniapp`**.
 
 | Переменная | Значение |
 |------------|----------|
-| `API_URL` | `https://<домен-api>.up.railway.app` *(обязательно на miniapp)* |
-| `VITE_API_URL` | *(можно не задавать — фронт ходит на `/api` через proxy)* |
+| `API_URL` | `https://<домен-api>.up.railway.app` |
 | `VITE_YANDEX_MAPS_KEY` | ключ JS API Яндекс.Карт |
 | `NITRO_HOST` | `0.0.0.0` |
 
-`API_URL` на miniapp — **runtime**: Nitro проксирует `/api/*` на core. **CORS не нужен.**
-
-На **yaride-core** `WEBAPP_CORS_ORIGINS` можно **не задавать** (если используется proxy).
-
-### yaride-admin (опционально)
-
-Тот же Dockerfile, root `/`. В Dashboard **не** нужен отдельный Start Command, если задана переменная:
+### yaride-admin
 
 | Переменная | Значение |
 |------------|----------|
 | `YARIDE_SERVICE` | **`admin`** |
-| `BOT_TOKEN` | тот же токен *(опционально, уведомления)* |
-| `DB_PATH` | `/data/yaride.db` |
-| `ADMIN_SESSION_SECRET` | тот же секрет, что у core |
-| Volume | `/data` (тот же volume) |
+| `DATABASE_URL` | `${{ Postgres.DATABASE_URL }}` |
+| `ADMIN_SESSION_SECRET` | тот же секрет |
+| `BOT_TOKEN` | опционально |
 
-Healthcheck: `/health` (эндпоинт есть в админке) или `/login`.
-
-Альтернатива без `YARIDE_SERVICE`: Start Command `python -m admin`, healthcheck `/login`.
+Healthcheck: `/health`. Volume **не** нужен.
 
 ## 4. Публичные домены
 
-1. **yaride-core** → Settings → Networking → **Generate Domain** → это URL API.
-2. **yaride-miniapp** → Generate Domain → URL для BotFather и `WEBAPP_CORS_ORIGINS`.
-3. **yaride-admin** → Generate Domain (если нужна модерация в браузере).
-
-Порядок: сначала домен API → прописать `VITE_API_URL` и `WEBAPP_CORS_ORIGINS` → redeploy miniapp.
+1. **yaride-core** → Generate Domain (API).
+2. **yaride-miniapp** → Generate Domain (Mini App).
+3. **yaride-admin** → Generate Domain (админка).
 
 ## 5. BotFather
 
-1. `/setmenubutton` или Bot Settings → Mini App URL: `https://<miniapp-domain>/`
-2. Убедитесь, что бот запущен **только на Railway** (один polling на токен).
+Mini App URL: `https://<miniapp-domain>/`. Один polling на токен.
 
 ## 6. Первый админ
 
-После деплоя core (с volume):
-
 ```bash
-railway link   # выбрать проект и yaride-core
+railway link
 railway run python -m admin.cli create-admin <логин>
 ```
 
-Или через Railway Dashboard → сервис → **Shell**.
-
 ## 7. Яндекс.Карты
 
-В кабинете разработчика Яндекса добавьте в HTTP Referer:
+Referer: домен miniapp + `web.telegram.org`.
 
-- домен miniapp (`*.up.railway.app` или точный хост)
-- `web.telegram.org`
-
-## 8. Локальная проверка Docker
+## 8. Локальная разработка
 
 ```bash
-# Backend
-docker build -t yaride-core .
-docker run --rm -p 8080:8080 -e BOT_TOKEN=... -e DB_PATH=/tmp/yaride.db yaride-core
-
-# Mini App
-cd miniapp
-docker build -t yaride-miniapp --build-arg VITE_API_URL=http://127.0.0.1:8080 .
-docker run --rm -p 3000:3000 -e PORT=3000 yaride-miniapp
+py -3 scripts/dev.py
+# SQLite: DB_PATH=yaride.db (по умолчанию)
+# Postgres: DATABASE_URL=postgresql://...
 ```
 
-## 9. CLI (альтернатива GitHub)
+## 9. CLI
 
 ```bash
-npm i -g @railway/cli
-railway login
-railway init
-railway up
+railway login && railway link
+railway up --service yaride_core -d
 ```
 
 ## Ограничения
 
-- **Один инстанс бота** — не масштабируйте `yaride-core` горизонтально.
-- SQLite + Volume: бэкапы — периодическое копирование `/data/yaride.db`.
-- Postgres — отдельный этап, не блокер для первого деплоя.
+- Один инстанс бота (не масштабировать core горизонтально).
+- Redis (этап 2): `REDIS_URL` + `app/cache.py`.
+
+## Legacy: SQLite volume
+
+Устарело. См. `scripts/sync_db_railway.py` или миграцию в Postgres (раздел 2).

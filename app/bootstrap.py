@@ -8,7 +8,7 @@ from aiogram import Dispatcher
 
 from app.chat_ui import ChatUiService
 from app.config import Settings, load_settings
-from app.db import Database
+from app.database import DbHandle, open_database
 from app.navigation_flow import NavigationFlow
 from app.repo import Repo
 from app.trip_flow import TripFlowOrchestrator
@@ -20,7 +20,7 @@ class Container:
     """Неизменяемый контейнер DI-зависимостей: создаётся один раз при старте, передаётся во все компоненты."""
 
     settings: Settings
-    db: Database
+    db: DbHandle
     repo: Repo
     keyboards: KeyboardFactory
     chat_ui: ChatUiService
@@ -33,7 +33,7 @@ def build_container() -> Container:
     ChatUiService не знал о деталях UserRepository (DIP).
     """
     settings = load_settings()
-    db = Database(settings.db_path)
+    db = open_database(database_url=settings.database_url, db_path=settings.db_path)
     db.init_schema()
     repo = Repo(db)
     keyboards = KeyboardFactory(settings=settings)

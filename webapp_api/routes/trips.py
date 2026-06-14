@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from app.cache import TRIPS_SEARCH_TTL_S, cache_get, cache_set, invalidate_trip_search_cache
 from app.repo import Repo
 from webapp_api.auth import TelegramAuthUser
 from webapp_api.config import WebAppSettings
@@ -25,16 +26,27 @@ def search_trips(
 ) -> dict:
     """Открытые поездки: точное совпадение остановок или поиск по парам районов."""
     by_district = bool(start_district and end_district)
+    cache_key = (
+        f"trips:search:district:{start_district}:{end_district}:{date or ''}"
+        if by_district
+        else f"trips:search:exact:{start_point}:{end_point}:{date or ''}"
+    )
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return cached
+
     if by_district:
         rows = repo.trips.find_open_trips(
             start_district=start_district,
             end_district=end_district,
             trip_date=date,
         )
-        return {
+        out = {
             "trips": [trip_card_to_dict(r) for r in rows],
             "searchScope": "district",
         }
+        cache_set(cache_key, out, ttl_s=TRIPS_SEARCH_TTL_S)
+        return out
 
     rows = repo.trips.find_open_trips(start_point_id=start_point, end_point_id=end_point, trip_date=date)
     out: dict = {
@@ -48,6 +60,7 @@ def search_trips(
         ed = str(ep["district"] or "").strip() if ep is not None else ""
         if sd and ed:
             out["districtFallback"] = {"startDistrict": sd, "endDistrict": ed}
+    cache_set(cache_key, out, ttl_s=TRIPS_SEARCH_TTL_S)
     return out
 
 
@@ -119,5 +132,6 @@ def create_trip(
             repo.trips.set_trip_comment(trip_id, body.comment)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    invalidate_trip_search_cache()
     return {"id": trip_id}
 

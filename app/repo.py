@@ -13,7 +13,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
-from app.db import Database
+from app.database import DbHandle, is_unique_violation
 from app.driver_access import (
     DRIVER_MOD_APPROVED,
     DRIVER_MOD_PENDING,
@@ -29,8 +29,12 @@ logger = logging.getLogger(__name__)
 
 
 class _BaseRepository:
-    def __init__(self, db: Database) -> None:
+    def __init__(self, db: DbHandle) -> None:
         self.db = db
+
+    @property
+    def _dialect(self):
+        return self.db.dialect
 
     @staticmethod
     def _trip_start_dt(trip_date: str | None, departure_time: str | None) -> datetime | None:
@@ -135,8 +139,10 @@ class UserRepository(_BaseRepository):
                         moderation_status,
                     ),
                 )
-            except sqlite3.IntegrityError as exc:
-                if "uq_users_dl_series" in str(exc) or "dl_series_number" in str(exc).lower():
+            except Exception as exc:
+                if is_unique_violation(exc) and (
+                    "uq_users_dl_series" in str(exc) or "dl_series_number" in str(exc).lower()
+                ):
                     raise ValueError("Это водительское удостоверение уже привязано к другому аккаунту.") from exc
                 raise
 
@@ -306,8 +312,10 @@ class UserRepository(_BaseRepository):
                         user_id,
                     ),
                 )
-            except sqlite3.IntegrityError as exc:
-                if "uq_users_dl_series" in str(exc) or "dl_series_number" in str(exc).lower():
+            except Exception as exc:
+                if is_unique_violation(exc) and (
+                    "uq_users_dl_series" in str(exc) or "dl_series_number" in str(exc).lower()
+                ):
                     raise ValueError("Это водительское удостоверение уже привязано к другому аккаунту.") from exc
                 raise
 
@@ -537,14 +545,14 @@ class RouteRepository(_BaseRepository):
         if not locality.strip() or not title.strip():
             raise ValueError("Населённый пункт и название остановки обязательны.")
         with self.db.transaction() as conn:
-            cur = conn.execute(
+            return self.db.insert_returning_id(
+                conn,
                 """
                 INSERT INTO route_points(locality, district, admin_area, title, kind, latitude, longitude)
                 VALUES (?, ?, ?, ?, 'stop', ?, ?)
                 """,
                 (locality.strip(), district.strip(), admin_area.strip(), title.strip(), latitude, longitude),
             )
-            return int(cur.lastrowid)
 
     def admin_update_point(
         self,
@@ -709,7 +717,8 @@ class TripRepository(_BaseRepository):
             if trip_start <= datetime.now():
                 raise ValueError("Нельзя создать поездку на прошедшее время.")
 
-            cur = conn.execute(
+            return self.db.insert_returning_id(
+                conn,
                 """
                 INSERT INTO trips(
                     driver_id, start_point_id, end_point_id, trip_date, departure_time, time_slot, price_rub, seats_total
@@ -726,7 +735,6 @@ class TripRepository(_BaseRepository):
                     seats_total,
                 ),
             )
-            return int(cur.lastrowid)
 
     def set_trip_comment(self, trip_id: int, comment: str | None) -> None:
         """Сохранить комментарий водителя к поездке (поле под Mini App; схема v8)."""
@@ -855,7 +863,7 @@ class TripRepository(_BaseRepository):
         with self.db.transaction() as conn:
             driver_id = self._get_internal_user_id(conn, tg_driver_id)
             return conn.execute(
-                """
+                f"""
                 SELECT
                     t.id AS trip_id,
                     t.trip_date,
@@ -873,8 +881,7 @@ class TripRepository(_BaseRepository):
                 WHERE t.driver_id = ?
                   AND (
                     t.status IN ('completed', 'cancelled')
-                    OR datetime(trim(t.trip_date) || ' ' || trim(COALESCE(t.departure_time, '00:00')))
-                        <= datetime('now', 'localtime')
+                    OR {self._dialect.trip_departure_lte_now()}
                   )
                 ORDER BY t.trip_date DESC, t.departure_time DESC, t.id DESC
                 """,
@@ -1135,8 +1142,9 @@ class BookingRepository(_BaseRepository):
                 )
                 booking_id = int(existing["id"])
             else:
-                cur = conn.execute("INSERT INTO bookings(trip_id, passenger_id) VALUES (?, ?)", (trip_id, passenger_id))
-                booking_id = int(cur.lastrowid)
+                booking_id = self.db.insert_returning_id(
+                    conn, "INSERT INTO bookings(trip_id, passenger_id) VALUES (?, ?)", (trip_id, passenger_id)
+                )
 
             cur = conn.execute(
                 """
@@ -1190,7 +1198,7 @@ class BookingRepository(_BaseRepository):
         with self.db.transaction() as conn:
             passenger_id = self._get_internal_user_id(conn, tg_passenger_id)
             return conn.execute(
-                """
+                f"""
                 SELECT
                     b.id AS booking_id,
                     b.status AS booking_status,
@@ -1220,8 +1228,7 @@ class BookingRepository(_BaseRepository):
                   AND (
                     b.status != 'active'
                     OR t.status IN ('completed', 'cancelled')
-                    OR datetime(trim(t.trip_date) || ' ' || trim(COALESCE(t.departure_time, '00:00')))
-                        <= datetime('now', 'localtime')
+                    OR {self._dialect.trip_departure_lte_now()}
                   )
                 ORDER BY t.trip_date DESC, t.departure_time DESC, b.id DESC
                 """,
@@ -1455,8 +1462,11 @@ class BookingRepository(_BaseRepository):
     def list_driver_booking_notification_events(self, tg_driver_id: int, *, days: int = 14) -> list[sqlite3.Row]:
         """События броней для водителя: новые и отмены пассажиром."""
         with self.db.transaction() as conn:
+            days_param = self._dialect.days_ago_param(days)
+            created_filter = self._dialect.days_ago_sql("b.created_at")
+            cancelled_filter = self._dialect.days_ago_sql("b.cancelled_at")
             return conn.execute(
-                """
+                f"""
                 SELECT
                     b.id AS booking_id,
                     b.status,
@@ -1480,26 +1490,28 @@ class BookingRepository(_BaseRepository):
                   AND (
                     (
                       b.status = 'active'
-                      AND datetime(b.created_at) >= datetime('now', ?)
+                      AND {created_filter}
                     )
                     OR (
                       b.status = 'cancelled_by_passenger'
                       AND b.cancelled_at IS NOT NULL
-                      AND datetime(b.cancelled_at) >= datetime('now', ?)
+                      AND {cancelled_filter}
                     )
                   )
                 ORDER BY COALESCE(b.cancelled_at, b.created_at) DESC
                 LIMIT 40
                 """,
-                (tg_driver_id, f"-{days} days", f"-{days} days"),
+                (tg_driver_id, days_param, days_param),
             ).fetchall()
 
     def list_passenger_booking_notification_events(self, tg_passenger_id: int, *, days: int = 14) -> list[sqlite3.Row]:
         """События броней для пассажира: отмены водителем."""
         with self.db.transaction() as conn:
             passenger_id = self._get_internal_user_id(conn, tg_passenger_id)
+            days_param = self._dialect.days_ago_param(days)
+            cancelled_filter = self._dialect.days_ago_sql("b.cancelled_at")
             return conn.execute(
-                """
+                f"""
                 SELECT
                     b.id AS booking_id,
                     b.status,
@@ -1520,11 +1532,11 @@ class BookingRepository(_BaseRepository):
                 WHERE b.passenger_id = ?
                   AND b.status = 'cancelled_by_driver'
                   AND b.cancelled_at IS NOT NULL
-                  AND datetime(b.cancelled_at) >= datetime('now', ?)
+                  AND {cancelled_filter}
                 ORDER BY b.cancelled_at DESC
                 LIMIT 40
                 """,
-                (passenger_id, f"-{days} days"),
+                (passenger_id, days_param),
             ).fetchall()
 
 
@@ -1552,8 +1564,10 @@ class FavoriteRouteRepository(_BaseRepository):
                     (tg_user_id, start_point_id, end_point_id),
                 )
                 return True
-            except sqlite3.IntegrityError:
-                return False
+            except Exception as exc:
+                if is_unique_violation(exc):
+                    return False
+                raise
 
     def add_favorite_from_trip(self, tg_user_id: int, trip_id: int) -> bool:
         with self.db.transaction() as conn:
@@ -1572,8 +1586,10 @@ class FavoriteRouteRepository(_BaseRepository):
                     (tg_user_id, int(row["start_point_id"]), int(row["end_point_id"])),
                 )
                 return True
-            except sqlite3.IntegrityError:
-                return False
+            except Exception as exc:
+                if is_unique_violation(exc):
+                    return False
+                raise
 
     def list_favorites(self, tg_user_id: int) -> list[sqlite3.Row]:
         with self.db.transaction() as conn:
@@ -1701,8 +1717,10 @@ class RatingRepository(_BaseRepository):
                     """,
                     (trip_id, rater_id, rated_id, stars, review_text),
                 )
-            except sqlite3.IntegrityError as exc:
-                raise ValueError("Эта оценка уже была сохранена.") from exc
+            except Exception as exc:
+                if is_unique_violation(exc):
+                    raise ValueError("Эта оценка уже была сохранена.") from exc
+                raise
             self._refresh_user_rating(conn, rated_id)
 
     def list_ratings_received(self, tg_user_id: int) -> list[sqlite3.Row]:
@@ -1777,10 +1795,7 @@ class RatingRepository(_BaseRepository):
     def mark_rating_prompt_sent(self, trip_id: int, rater_user_id: int, rated_user_id: int) -> None:
         with self.db.transaction() as conn:
             conn.execute(
-                """
-                INSERT OR IGNORE INTO rating_prompts_sent(trip_id, rater_user_id, rated_user_id)
-                VALUES (?, ?, ?)
-                """,
+                self._dialect.insert_ignore_rating_prompt(),
                 (trip_id, rater_user_id, rated_user_id),
             )
 
@@ -1790,7 +1805,9 @@ class RatingRepository(_BaseRepository):
         cutoff = now - timedelta(hours=3)
         cutoff_s = cutoff.strftime("%Y-%m-%d %H:%M:%S")
 
-        sql = """
+        trip_cutoff = self._dialect.trip_departure_lte_param()
+
+        sql = f"""
             SELECT
                 t.id AS trip_id,
                 b.passenger_id AS rater_user_id,
@@ -1814,7 +1831,7 @@ class RatingRepository(_BaseRepository):
             WHERE t.status != 'cancelled'
               AND trim(COALESCE(t.trip_date, '')) != ''
               AND trim(COALESCE(t.departure_time, '')) != ''
-              AND datetime(trim(t.trip_date) || ' ' || trim(t.departure_time)) <= datetime(?)
+              AND {trip_cutoff}
               AND tr.id IS NULL
               AND rs.trip_id IS NULL
 
@@ -1843,7 +1860,7 @@ class RatingRepository(_BaseRepository):
             WHERE t.status != 'cancelled'
               AND trim(COALESCE(t.trip_date, '')) != ''
               AND trim(COALESCE(t.departure_time, '')) != ''
-              AND datetime(trim(t.trip_date) || ' ' || trim(t.departure_time)) <= datetime(?)
+              AND {trip_cutoff}
               AND tr.id IS NULL
               AND rs.trip_id IS NULL
         """
@@ -1894,13 +1911,15 @@ class AdminRepository(_BaseRepository):
             raise ValueError("Логин администратора не может быть пустым.")
         with self.db.transaction() as conn:
             try:
-                cur = conn.execute(
+                return self.db.insert_returning_id(
+                    conn,
                     "INSERT INTO admin_users(username, password_hash) VALUES (?, ?)",
                     (username.strip(), password_hash),
                 )
-            except sqlite3.IntegrityError as exc:
-                raise ValueError("Администратор с таким логином уже существует.") from exc
-            return int(cur.lastrowid)
+            except Exception as exc:
+                if is_unique_violation(exc):
+                    raise ValueError("Администратор с таким логином уже существует.") from exc
+                raise
 
     def set_password_hash(self, username: str, password_hash: str) -> None:
         with self.db.transaction() as conn:
@@ -1957,14 +1976,14 @@ class TripTemplateRepository(_BaseRepository):
             driver = conn.execute("SELECT * FROM users WHERE tg_user_id = ?", (tg_driver_id,)).fetchone()
             if not is_approved_driver(driver):
                 raise ValueError("Маршруты-шаблоны доступны только одобренному водителю.")
-            cur = conn.execute(
+            return self.db.insert_returning_id(
+                conn,
                 """
                 INSERT INTO trip_templates(driver_id, start_point_id, end_point_id, price_rub, seats_total, comment)
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (int(driver["id"]), start_point_id, end_point_id, price_rub, seats_total, comment),
             )
-            return int(cur.lastrowid)
 
     def list_templates(self, tg_driver_id: int) -> list[sqlite3.Row]:
         with self.db.transaction() as conn:
@@ -2004,7 +2023,7 @@ class TripTemplateRepository(_BaseRepository):
 class Repo:
     """Тонкий контейнер под-репозиториев; вызовы идут через repo.users, repo.routes, …"""
 
-    def __init__(self, db: Database) -> None:
+    def __init__(self, db: DbHandle) -> None:
         self.db = db
         self.users = UserRepository(db)
         self.routes = RouteRepository(db)

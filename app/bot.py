@@ -8,6 +8,7 @@ import logging
 from aiogram import Bot, Dispatcher, Router
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiogram.exceptions import TelegramNetworkError
 
 from app.bootstrap import attach_to_dispatcher, build_container
 from app.bot_support import configure, push_main_menu_after_restart
@@ -26,6 +27,29 @@ from app.middlewares import BanMiddleware
 from app.rating_worker import process_pending_rating_prompts
 
 logger = logging.getLogger(__name__)
+
+
+async def _delete_webhook_with_retry(bot: Bot, *, attempts: int = 6, pause_s: float = 5.0) -> None:
+    """Сброс webhook с повторами — api.telegram.org иногда недоступен (VPN, DPI, таймаут)."""
+    last: Exception | None = None
+    for n in range(1, attempts + 1):
+        try:
+            await bot.delete_webhook(drop_pending_updates=True)
+            if n > 1:
+                logger.info("delete_webhook succeeded on attempt %s", n)
+            return
+        except TelegramNetworkError as exc:
+            last = exc
+            logger.warning(
+                "Telegram API timeout (attempt %s/%s) — проверьте доступ к api.telegram.org",
+                n,
+                attempts,
+            )
+            if n < attempts:
+                await asyncio.sleep(pause_s)
+    assert last is not None
+    raise last
+
 
 router = Router()
 router.include_router(registration_router)
@@ -61,7 +85,7 @@ async def run() -> None:
 
     # drop_pending_updates=True — сбрасываем накопившиеся апдейты при рестарте,
     # чтобы не обрабатывать устаревшие callback'и с предыдущей сессии.
-    await bot.delete_webhook(drop_pending_updates=True)
+    await _delete_webhook_with_retry(bot)
 
     async def rating_prompt_loop() -> None:
         """Периодически рассылает запросы оценок после завершённых поездок.

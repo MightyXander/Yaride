@@ -13,6 +13,7 @@ from contextlib import contextmanager
 
 from app.geo_stops import COORDINATE_OVERRIDES, lat_lng_for_stop
 from app.seeds import ROUTE_HIERARCHY
+from app.sql_dialect import SqlDialect
 
 # Текущая версия схемы кода.
 # v2 — этап 1 (WAL); v3 — этап 2 (индексы);
@@ -32,6 +33,7 @@ class Database:
 
     def __init__(self, db_path: str) -> None:
         self.db_path = db_path
+        self.dialect = SqlDialect("sqlite")
         self._conn: sqlite3.Connection | None = None
         self._lock = threading.RLock()
 
@@ -61,6 +63,18 @@ class Database:
             if self._conn is not None:
                 self._conn.close()
                 self._conn = None
+
+    def wal_checkpoint_truncate(self) -> None:
+        """Сбросить WAL в основной файл БД (важно при копировании yaride.db между volume/инстансами)."""
+        with self._lock:
+            conn = self._ensure_connection()
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+
+    def insert_returning_id(self, conn: sqlite3.Connection, sql: str, params: tuple) -> int:
+        cur = conn.execute(sql, params)
+        if cur.lastrowid is None:
+            raise RuntimeError("INSERT не вернул lastrowid")
+        return int(cur.lastrowid)
 
     @contextmanager
     def transaction(self) -> Iterator[sqlite3.Connection]:
@@ -207,9 +221,18 @@ class Database:
         """Модерация водителей: заявка на рассмотрении до одобрения администратором."""
         self._ensure_users_driver_moderation(conn)
 
+    def _sqlite_table_columns(self, conn: sqlite3.Connection, table: str) -> set[str] | None:
+        """Колонки таблицы или None, если таблицы нет (частичная фикстура миграций)."""
+        tables = {r["name"] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+        if table not in tables:
+            return None
+        return {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+
     def _migrate_v10_to_v11(self, conn: sqlite3.Connection) -> None:
         """Порог рейтинга пассажиров по умолчанию выключен у всех пользователей."""
-        conn.execute("UPDATE users SET min_passenger_rating = NULL")
+        cols = self._sqlite_table_columns(conn, "users")
+        if cols and "min_passenger_rating" in cols:
+            conn.execute("UPDATE users SET min_passenger_rating = NULL")
 
     def _ensure_trip_templates_table(self, conn: sqlite3.Connection) -> None:
         """Шаблон = постоянный маршрут водителя с дефолтами. schedule_* — задел под авто-публикацию (этап B-2)."""
@@ -249,9 +272,8 @@ class Database:
 
     def _ensure_users_is_banned(self, conn: sqlite3.Connection) -> None:
         """is_banned — мягкая блокировка: забаненный пользователь сохраняется (FK-связи целы), но не обслуживается ботом."""
-        cols = {row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
+        cols = self._sqlite_table_columns(conn, "users")
         if not cols:
-            # Таблицы users ещё нет (порядок bootstrap или искусственная фикстура) — добавит её владелец схемы.
             return
         if "is_banned" not in cols:
             conn.execute("ALTER TABLE users ADD COLUMN is_banned INTEGER NOT NULL DEFAULT 0")
@@ -426,14 +448,15 @@ class Database:
         self._ensure_users_driver_moderation(conn)
 
     def _ensure_users_driver_moderation(self, conn: sqlite3.Connection) -> None:
-        cols = {row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
-        if "driver_moderation_status" not in cols:
-            conn.execute(
-                """
-                ALTER TABLE users ADD COLUMN driver_moderation_status TEXT NOT NULL DEFAULT 'approved'
-                CHECK(driver_moderation_status IN ('pending', 'approved', 'rejected'))
-                """
-            )
+        cols = self._sqlite_table_columns(conn, "users")
+        if not cols or "driver_moderation_status" in cols:
+            return
+        conn.execute(
+            """
+            ALTER TABLE users ADD COLUMN driver_moderation_status TEXT NOT NULL DEFAULT 'approved'
+            CHECK(driver_moderation_status IN ('pending', 'approved', 'rejected'))
+            """
+        )
 
     def _migrate_schema(self, conn: sqlite3.Connection) -> None:
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(trips)").fetchall()}

@@ -9,3 +9,9 @@ jinja2>=3.1
 itsdangerous>=2.2
 passlib>=1.7.4
 python-multipart>=0.0.20
+
+# PostgreSQL (production / DATABASE_URL)
+psycopg[binary,pool]>=3.2
+
+# Redis (этап 2: кэш catalog/trips, opt-in через REDIS_URL)
+redis>=5
