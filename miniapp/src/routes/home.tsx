@@ -6,6 +6,7 @@ import {
   Clock,
   History,
   Plus,
+  RefreshCw,
   Search,
   Settings,
   Sparkles,
@@ -14,13 +15,14 @@ import {
   UserRound,
 } from "lucide-react";
 import type * as React from "react";
-import { useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { Screen } from "@/components/ui-kit";
+import { Chip, Screen } from "@/components/ui-kit";
 import { clearCreateWizardDraft } from "@/lib/create-wizard";
 import { isActiveDriver, isDriverPending, isDriverRejected } from "@/lib/driver-access";
-import { meQueryOptions } from "@/lib/queries";
+import { favoritesQueryOptions, meQueryOptions } from "@/lib/queries";
+import { listSavedDistrictRoutes } from "@/lib/saved-district-route";
 import { useBackButton } from "@/lib/telegram";
 import { preloadRoutePath, scheduleWarmApp } from "@/lib/warm-app";
 import type { Role } from "@/lib/api";
@@ -100,13 +102,25 @@ const TILES: {
   { to: "/history", label: "История", hint: "архив поездок", icon: History, art: ArtHistory, roles: ["driver", "passenger"] },
 ];
 
+const EMPTY_SEARCH = {
+  fromPointId: undefined,
+  toPointId: undefined,
+  fromLabel: undefined,
+  toLabel: undefined,
+} as const;
+
 function Home() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { data, isLoading, isError, refetch } = useQuery(meQueryOptions());
+  const { data, isLoading, isError, refetch, isFetching } = useQuery(meQueryOptions());
+  const favQ = useQuery({ ...favoritesQueryOptions(), enabled: !!data?.registered });
   const navigate = useNavigate();
   const profile = data?.user ?? null;
   const registered = data?.registered ?? false;
+  const [pulling, setPulling] = useState(false);
+
+  const savedRoutes = useMemo(() => listSavedDistrictRoutes().slice(0, 3), []);
+  const favoriteRoutes = useMemo(() => (favQ.data?.favorites ?? []).slice(0, 2), [favQ.data?.favorites]);
 
   useBackButton(null);
 
@@ -120,6 +134,18 @@ function Home() {
   const preload = (path: string) => {
     if (!profile) return;
     preloadRoutePath(router, queryClient, path, profile.role);
+  };
+
+  const handleRefresh = async () => {
+    setPulling(true);
+    try {
+      await Promise.all([
+        refetch(),
+        queryClient.invalidateQueries({ queryKey: favoritesQueryOptions().queryKey }),
+      ]);
+    } finally {
+      setPulling(false);
+    }
   };
 
   if (isLoading && !data) return <HomeSkeleton />;
@@ -179,6 +205,15 @@ function Home() {
           </div>
         </Link>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void handleRefresh()}
+            aria-label="Обновить"
+            className="size-11 rounded-full bg-secondary text-secondary-foreground grid place-items-center press"
+            data-no-tap-glow
+          >
+            <RefreshCw className={`size-5 ${pulling || isFetching ? "pull-refresh-spin" : ""}`} />
+          </button>
           <Link
             to="/notifications"
             preload="intent"
@@ -216,12 +251,98 @@ function Home() {
           <h2 className="mt-2 text-[30px] leading-[1.05] font-extrabold tracking-tight max-w-[80%]">
             {isDriver && activeDriver ? "Возьмите\nпопутчиков" : "Найдите\nпопутчика"}.
           </h2>
-          <div className="mt-5 inline-flex items-center gap-2 h-11 px-4 rounded-full bg-[#18170f] text-white text-[14px] font-semibold">
+          <div className="mt-5 inline-flex items-center gap-2 h-11 px-4 rounded-full bg-foreground text-background text-[14px] font-semibold">
             <Sparkles className="size-4" />
             {heroCta.label}
           </div>
         </Link>
       </section>
+
+      <section className="px-5 mt-4">
+        <div className="chip-scroll list-stagger">
+          <Chip
+            onClick={() => {
+              preload("/search");
+              navigate({ to: "/search", search: EMPTY_SEARCH });
+            }}
+          >
+            Найти
+          </Chip>
+          <Chip
+            onClick={() => {
+              preload("/bookings");
+              navigate({ to: "/bookings" });
+            }}
+          >
+            Брони
+          </Chip>
+          <Chip
+            onClick={() => {
+              preload("/favorites");
+              navigate({ to: "/favorites" });
+            }}
+          >
+            Избранное
+          </Chip>
+          {isDriver && activeDriver ? (
+            <Chip
+              onClick={() => {
+                clearCreateWizardDraft();
+                preload("/create");
+                navigate({ to: "/create" });
+              }}
+            >
+              Создать
+            </Chip>
+          ) : null}
+        </div>
+      </section>
+
+      {favoriteRoutes.length > 0 || savedRoutes.length > 0 ? (
+        <section className="px-5 mt-4">
+          <h3 className="text-[11px] uppercase tracking-[0.16em] font-bold text-muted-foreground px-1 mb-2.5">
+            Недавние маршруты
+          </h3>
+          <div className="space-y-2 list-stagger">
+            {favoriteRoutes.map((f) => (
+              <Link
+                key={`fav-${f.id}`}
+                to="/search"
+                search={{
+                  fromPointId: f.startPointId,
+                  toPointId: f.endPointId,
+                  fromLabel: f.fromTitle,
+                  toLabel: f.toTitle,
+                }}
+                className="block surface-elevated p-3 rounded-2xl press"
+              >
+                <div className="text-[14px] font-semibold truncate">
+                  {f.fromTitle} → {f.toTitle}
+                </div>
+                <div className="text-[12px] text-muted-foreground mt-0.5">Избранное</div>
+              </Link>
+            ))}
+            {savedRoutes.map((r) => (
+              <button
+                key={`${r.fromDistrict}-${r.toDistrict}-${r.savedAt}`}
+                type="button"
+                onClick={() =>
+                  navigate({
+                    to: "/search",
+                    search: EMPTY_SEARCH,
+                  })
+                }
+                className="w-full text-left surface-elevated p-3 rounded-2xl press"
+              >
+                <div className="text-[14px] font-semibold truncate">
+                  {r.fromDistrict} → {r.toDistrict}
+                </div>
+                <div className="text-[12px] text-muted-foreground mt-0.5">По районам</div>
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <section className="px-5 mt-3 grid grid-cols-2 gap-3">
         <div className="surface-elevated p-4">

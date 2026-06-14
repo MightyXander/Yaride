@@ -202,6 +202,20 @@ export function BottomCTA({
   return createPortal(bar, document.body);
 }
 
+export function TripListSkeleton({ count = 3 }: { count?: number }) {
+  return (
+    <div className="space-y-3">
+      {Array.from({ length: count }).map((_, i) => (
+        <div key={i} className="surface-elevated p-4 space-y-3">
+          <div className="h-4 w-2/3 rounded-lg shimmer" />
+          <div className="h-3 w-1/2 rounded-lg shimmer" />
+          <div className="h-10 rounded-xl shimmer" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function Chip({
   active,
   onClick,
@@ -216,7 +230,7 @@ export function Chip({
       onClick={onClick}
       className={`px-4 h-10 rounded-full text-[15px] font-semibold press ${
         active
-          ? "brand-gradient text-[#18170f]"
+          ? "brand-gradient text-brand-foreground"
           : "bg-secondary text-secondary-foreground"
       }`}
     >

@@ -8,6 +8,8 @@ import {
   ScreenHeader,
   Section,
   TripCard,
+  TripListSkeleton,
+  Chip,
   formatTripDate,
 } from "@/components/ui-kit";
 import { DistrictStep, GeoStep, RouteDateStep, StopStep } from "@/components/route-pick-steps";
@@ -411,7 +413,7 @@ function Results({
       <>
         <ScreenHeader title="Поиск…" />
         <Section>
-          <div className="h-40 bg-secondary animate-pulse rounded-xl" />
+          <TripListSkeleton count={4} />
         </Section>
       </>
     );
@@ -531,6 +533,23 @@ function Results({
             Показаны все поездки между районами. Точные остановки могут отличаться — маршрут сохранён для
             быстрого поиска.
           </p>
+        </Section>
+      ) : null}
+      {filtersActive ? (
+        <Section>
+          <div className="chip-scroll">
+            {filters.departureTime ? (
+              <Chip active onClick={() => setFilterOpen(true)}>
+                {filters.departureTime}
+              </Chip>
+            ) : null}
+            {filters.minSeatsFree != null ? (
+              <Chip active onClick={() => setFilterOpen(true)}>
+                ≥ {filters.minSeatsFree} мест
+              </Chip>
+            ) : null}
+            <Chip onClick={() => setFilters(EMPTY_SEARCH_FILTERS)}>Сбросить</Chip>
+          </div>
         </Section>
       ) : null}
       <Section>
