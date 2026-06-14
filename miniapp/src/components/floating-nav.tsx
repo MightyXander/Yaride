@@ -73,31 +73,21 @@ function FloatingNavBar({ activeTab }: { activeTab: NavTabRoot }) {
                 }}
                 className="relative z-10 flex min-w-0 flex-row items-center justify-center rounded-full touch-manipulation select-none"
               >
-                <motion.div
-                  layout
-                  className="flex items-center justify-center"
-                  transition={{ type: "spring", stiffness: 420, damping: 32 }}
-                >
-                  <motion.div
-                    layout
-                    transition={{ type: "spring", stiffness: 420, damping: 32 }}
-                  >
-                    <Icon
-                      className={`relative z-10 size-[18px] shrink-0 transition-colors duration-200 ${
-                        active ? "text-brand-foreground" : "text-muted-foreground"
-                      }`}
-                      strokeWidth={2}
-                      aria-hidden
-                    />
-                  </motion.div>
-                  <AnimatePresence initial={false} mode="popLayout">
+                <div className="flex items-center justify-center">
+                  <Icon
+                    className={`relative z-10 size-[18px] shrink-0 transition-colors duration-200 ${
+                      active ? "text-brand-foreground" : "text-muted-foreground"
+                    }`}
+                    strokeWidth={2}
+                    aria-hidden
+                  />
+                  <AnimatePresence initial={false} mode="wait">
                     {active ? (
                       <motion.span
                         key="label"
-                        layout
-                        initial={{ opacity: 0, width: 0, scale: 0.8, marginLeft: 0 }}
-                        animate={{ opacity: 1, width: "auto", scale: 1, marginLeft: 6 }}
-                        exit={{ opacity: 0, width: 0, scale: 0.8, marginLeft: 0 }}
+                        initial={{ opacity: 0, width: 0, marginLeft: 0 }}
+                        animate={{ opacity: 1, width: "auto", marginLeft: 6 }}
+                        exit={{ opacity: 0, width: 0, marginLeft: 0 }}
                         transition={{ type: "spring", stiffness: 420, damping: 32 }}
                         className="overflow-hidden text-[13px] font-semibold leading-none text-brand-foreground whitespace-nowrap"
                       >
@@ -105,7 +95,7 @@ function FloatingNavBar({ activeTab }: { activeTab: NavTabRoot }) {
                       </motion.span>
                     ) : null}
                   </AnimatePresence>
-                </motion.div>
+                </div>
               </button>
             );
           })}
