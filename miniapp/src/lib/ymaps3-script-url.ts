@@ -10,7 +10,8 @@ export function ymaps3ScriptUrl(apiKey: string): string {
   const useSameOriginProxy =
     hostname === "localhost" ||
     hostname === "127.0.0.1" ||
-    hostname.endsWith(".trycloudflare.com");
+    hostname.endsWith(".trycloudflare.com") ||
+    hostname.endsWith(".railway.app");
 
   if (useSameOriginProxy) {
     return `${origin}/ymaps-v3/?${qs}`;
@@ -30,6 +31,7 @@ export function ymaps3LoadDiagnostics() {
     viaProxy:
       hostname === "localhost" ||
       hostname === "127.0.0.1" ||
-      hostname.endsWith(".trycloudflare.com"),
+      hostname.endsWith(".trycloudflare.com") ||
+      hostname.endsWith(".railway.app"),
   };
 }

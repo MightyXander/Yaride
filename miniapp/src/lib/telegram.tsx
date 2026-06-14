@@ -127,6 +127,7 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
       try {
         tg.ready();
         tg.expand();
+        tg.MainButton?.hide();
       } catch {}
       const realTelegram = !!tg.initData;
       const scheme = realTelegram ? tg.colorScheme : "dark";
@@ -143,11 +144,31 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
         setColorScheme(fresh.colorScheme);
       };
       tg.onEvent("themeChanged", onTheme);
-      const onVisible = () => refreshInitData();
-      tg.onEvent("viewportChanged", onVisible);
+      const onViewportChanged = () => {
+        refreshInitData();
+        document.documentElement.scrollLeft = 0;
+        document.body.scrollLeft = 0;
+        window.scrollTo({ top: window.scrollY, left: 0 });
+        try {
+          tg.expand();
+        } catch {
+          /* noop */
+        }
+      };
+      tg.onEvent("viewportChanged", onViewportChanged);
+
+      const onVisibility = () => {
+        if (document.visibilityState !== "visible") return;
+        document.documentElement.scrollLeft = 0;
+        document.body.scrollLeft = 0;
+        window.scrollTo({ top: window.scrollY, left: 0 });
+      };
+      document.addEventListener("visibilitychange", onVisibility);
+
       return () => {
         tg.offEvent("themeChanged", onTheme);
-        tg.offEvent("viewportChanged", onVisible);
+        tg.offEvent("viewportChanged", onViewportChanged);
+        document.removeEventListener("visibilitychange", onVisibility);
       };
     };
 

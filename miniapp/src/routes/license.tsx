@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BottomCTA, Field, Screen, ScreenHeader, Section, TextInput } from "@/components/ui-kit";
 import { api, ApiError } from "@/lib/api";
-import { isLicenseExpiresValid, isLicenseSeriesValid } from "@/lib/license-validation";
+import { isLicenseExpiresValid, isLicenseSeriesValid, normalizeLicenseSeries } from "@/lib/license-validation";
 import { meQueryOptions, queryKeys } from "@/lib/queries";
 import { useBackButton, useTelegram } from "@/lib/telegram";
 
@@ -47,16 +47,19 @@ function LicenseScreen() {
   const canSave = isLicenseSeriesValid(series) && expiresValid;
 
   const saveMut = useMutation({
-    mutationFn: () =>
-      api.register({
+    mutationFn: () => {
+      const normalized = normalizeLicenseSeries(series);
+      if (!normalized) throw new Error("Неверный формат серии и номера ВУ");
+      return api.register({
         name: profile?.name ?? "Водитель",
         role: "driver",
-        dl_series_number: series.trim().replace(/\s+/g, ""),
+        dl_series_number: normalized,
         dl_valid_until: expires,
         car_model: carModel.trim() || undefined,
         car_color: carColor.trim() || undefined,
         car_plate: carPlate.trim() || undefined,
-      }),
+      });
+    },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: queryKeys.me });
       haptic("success");

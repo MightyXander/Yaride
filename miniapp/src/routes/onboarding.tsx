@@ -11,9 +11,9 @@ import {
   TextInput,
 } from "@/components/ui-kit";
 import { api, ApiError, type Role } from "@/lib/api";
-import { isLicenseExpiresValid, isLicenseSeriesValid } from "@/lib/license-validation";
+import { isLicenseExpiresValid, isLicenseSeriesValid, normalizeLicenseSeries } from "@/lib/license-validation";
 import { queryKeys } from "@/lib/queries";
-import { useBackButton, useMainButton, useTelegram } from "@/lib/telegram";
+import { useBackButton, useTelegram } from "@/lib/telegram";
 
 export const Route = createFileRoute("/onboarding")({
   component: Onboarding,
@@ -70,7 +70,9 @@ function Onboarding() {
         role: selectedRole,
       };
       if (selectedRole === "driver") {
-        body.dl_series_number = series.trim().replace(/\s+/g, "");
+        const normalized = normalizeLicenseSeries(series);
+        if (!normalized) return;
+        body.dl_series_number = normalized;
         body.dl_valid_until = expires;
         if (carModel.trim()) body.car_model = carModel.trim();
         if (carColor.trim()) body.car_color = carColor.trim();
@@ -104,11 +106,12 @@ function Onboarding() {
     (step === "role" && role !== null) ||
     (step === "license" && isLicenseSeriesValid(series) && expiresValid);
 
-  useMainButton(
-    step === "role" && role === "passenger" ? "Начать пользоваться" : step === "license" ? "Сохранить" : "Далее",
-    onNext,
-    { enabled: canContinue && !registerMut.isPending },
-  );
+  const ctaText =
+    step === "role" && role === "passenger"
+      ? "Начать пользоваться"
+      : step === "license"
+        ? "Сохранить"
+        : "Далее";
 
   useBackButton(
     step === "name"
@@ -189,7 +192,13 @@ function Onboarding() {
             />
           </Field>
           <Field label="Срок действия" error={expiresError}>
-            <TextInput type="date" value={expires} onChange={(e) => setExpires(e.target.value)} invalid={!!expiresError} />
+            <TextInput
+              type="date"
+              value={expires}
+              onChange={(e) => setExpires(e.target.value)}
+              onBlur={() => setExpiresTouched(true)}
+              invalid={!!expiresError}
+            />
           </Field>
           <Field label="Авто (необязательно)" hint="Марка, цвет, номер">
             <div className="space-y-2">
@@ -201,7 +210,12 @@ function Onboarding() {
         </div>
       ) : null}
 
-      <BottomCTA text="Далее" onClick={onNext} disabled={!canContinue || registerMut.isPending} />
+      <BottomCTA
+        forceInPage
+        text={ctaText}
+        onClick={onNext}
+        disabled={!canContinue || registerMut.isPending}
+      />
     </Screen>
   );
 }

@@ -1,13 +1,17 @@
-import { useEffect, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { useEffect, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { ChevronRight, Star } from "lucide-react";
 import type { TripCardData } from "@/lib/adapters";
 import { BOTTOM_CTA_ABOVE_FLOATING_NAV } from "@/components/floating-nav";
+import { useKeyboardInset } from "@/lib/keyboard-inset";
 import { useHideMainButton, useTelegram } from "@/lib/telegram";
 
 export function Screen({ children, className = "" }: { children: ReactNode; className?: string }) {
+  useKeyboardInset();
   return (
-    <div className={`min-h-dvh bg-background text-foreground pb-32 ${className}`}>
+    <div
+      className={`min-h-dvh bg-background text-foreground pb-[calc(8rem+var(--keyboard-inset,0px))] ${className}`}
+    >
       <div className="stagger-in">{children}</div>
     </div>
   );
@@ -173,8 +177,8 @@ export function BottomCTA({
 
   const liftAboveNav = aboveFloatingNav ?? forceInPage;
   const bottom = liftAboveNav
-    ? BOTTOM_CTA_ABOVE_FLOATING_NAV
-    : "max(12px, env(safe-area-inset-bottom, 0px))";
+    ? `calc(${BOTTOM_CTA_ABOVE_FLOATING_NAV} + var(--keyboard-inset, 0px))`
+    : "max(12px, calc(env(safe-area-inset-bottom, 0px) + var(--keyboard-inset, 0px)))";
 
   const bar = (
     <div
@@ -358,12 +362,19 @@ export function Field({
 export function TextInput({
   invalid,
   className = "",
+  onFocus,
   ...rest
-}: React.InputHTMLAttributes<HTMLInputElement> & { invalid?: boolean }) {
+}: InputHTMLAttributes<HTMLInputElement> & { invalid?: boolean }) {
   return (
     <input
       {...rest}
-      className={`w-full h-12 px-4 rounded-xl bg-input/60 text-foreground placeholder:text-muted-foreground outline-none ring-0 focus:bg-input transition-colors ${
+      onFocus={(e) => {
+        onFocus?.(e);
+        requestAnimationFrame(() => {
+          e.currentTarget.scrollIntoView({ block: "center", behavior: "smooth" });
+        });
+      }}
+      className={`w-full h-12 px-4 rounded-xl bg-input/60 text-foreground placeholder:text-muted-foreground outline-none ring-0 focus:bg-input transition-colors scroll-mb-32 ${
         invalid ? "ring-2 ring-destructive" : ""
       } ${className}`}
     />
