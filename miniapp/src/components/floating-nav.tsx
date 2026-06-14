@@ -76,11 +76,11 @@ function FloatingNavBar({ activeTab }: { activeTab: NavTabRoot }) {
                 <motion.div
                   layout
                   className="flex items-center justify-center"
-                  transition={{ type: "spring", stiffness: 450, damping: 30 }}
+                  transition={{ type: "spring", stiffness: 420, damping: 32 }}
                 >
                   <motion.div
-                    animate={active ? { x: [0, -5, 0] } : { x: 0 }}
-                    transition={{ duration: 0.35, ease: "easeOut" }}
+                    layout
+                    transition={{ type: "spring", stiffness: 420, damping: 32 }}
                   >
                     <Icon
                       className={`relative z-10 size-[18px] shrink-0 transition-colors duration-200 ${
@@ -90,14 +90,16 @@ function FloatingNavBar({ activeTab }: { activeTab: NavTabRoot }) {
                       aria-hidden
                     />
                   </motion.div>
-                  <AnimatePresence>
+                  <AnimatePresence initial={false} mode="popLayout">
                     {active ? (
                       <motion.span
-                        initial={{ opacity: 0, x: 10, scale: 0.85 }}
-                        animate={{ opacity: 1, x: 0, scale: 1 }}
-                        exit={{ opacity: 0, x: -6, scale: 0.85 }}
-                        transition={{ type: "spring", stiffness: 450, damping: 26 }}
-                        className="ml-1.5 text-[13px] font-semibold leading-none text-brand-foreground whitespace-nowrap"
+                        key="label"
+                        layout
+                        initial={{ opacity: 0, width: 0, scale: 0.8, marginLeft: 0 }}
+                        animate={{ opacity: 1, width: "auto", scale: 1, marginLeft: 6 }}
+                        exit={{ opacity: 0, width: 0, scale: 0.8, marginLeft: 0 }}
+                        transition={{ type: "spring", stiffness: 420, damping: 32 }}
+                        className="overflow-hidden text-[13px] font-semibold leading-none text-brand-foreground whitespace-nowrap"
                       >
                         {label}
                       </motion.span>
