@@ -8,7 +8,11 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
+from pathlib import Path
+
+_SCRIPTS = Path(__file__).resolve().parent
 
 
 def main() -> int:
@@ -18,9 +22,10 @@ def main() -> int:
 
         admin_main()
         return 0
-    from scripts.start_prod import main as core_main
 
-    return core_main()
+    # scripts/ не Python-пакет — запускаем start_prod.py как отдельный процесс.
+    proc = subprocess.run([sys.executable, str(_SCRIPTS / "start_prod.py")], check=False)
+    return int(proc.returncode or 0)
 
 
 if __name__ == "__main__":
