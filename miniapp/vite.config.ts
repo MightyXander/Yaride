@@ -27,7 +27,10 @@ function resolveYandexMapsKey(mode = process.env.MODE || "development"): string 
 const yandexMapsKey = resolveYandexMapsKey();
 
 export default defineConfig({
-  nitro: { preset: "node-server" },
+  nitro: {
+    preset: "node-server",
+    serverDir: "server",
+  },
   tanstackStart: {
     server: { entry: "server" },
   },
