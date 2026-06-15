@@ -51,7 +51,7 @@ export function StopMapLegacy({
 
   useEffect(() => {
     applyLegacyMapTheme(mapRef.current, theme);
-  }, [theme, stops.length]);
+  }, [theme]);
 
   useEffect(() => {
     const map = mapRef.current;
