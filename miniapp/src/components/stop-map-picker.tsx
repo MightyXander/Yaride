@@ -18,7 +18,7 @@ import {
   mapRefererHelp,
   mapRefererShort,
   refererHostnames,
-} from "@/lib/yandex-map-theme-legacy";
+} from "@/lib/yandex-maps-diagnostics";
 import { ymaps3LoadDiagnostics } from "@/lib/ymaps3-script-url";
 import { resetYmaps3Loader, useYmaps3React } from "@/lib/ymaps3";
 

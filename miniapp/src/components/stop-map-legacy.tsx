@@ -8,7 +8,7 @@ import {
   STOP_MAP_ZOOM_RANGE,
   YAROSLAVL_CENTER,
 } from "@/lib/geo";
-import type { ResolvedTheme } from "@/lib/yandex-map-theme-legacy";
+import type { ResolvedTheme } from "@/lib/yandex-maps-diagnostics";
 
 const clusterOptions = {
   preset: "islands#invertedYellowClusterIcons",
