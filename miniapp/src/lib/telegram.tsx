@@ -172,22 +172,29 @@ export function TelegramProvider({ children }: { children: ReactNode }) {
       };
     };
 
-    if (!window.Telegram?.WebApp) {
-      const script = document.createElement("script");
-      script.src = "https://telegram.org/js/telegram-web-app.js";
-      script.async = true;
-      script.onload = () => {
-        if (cancelled) return;
-        init();
-      };
-      document.head.appendChild(script);
-      const cleanup = init();
-      return () => {
-        cancelled = true;
-        cleanup?.();
-      };
+    if (window.Telegram?.WebApp) {
+      return init();
     }
-    return init();
+
+    // Script is already in the HTML shell; poll until WebApp is ready (race with parse/load).
+    let cleanup: (() => void) | undefined;
+    const started = Date.now();
+    const poll = window.setInterval(() => {
+      if (cancelled) {
+        window.clearInterval(poll);
+        return;
+      }
+      if (window.Telegram?.WebApp || Date.now() - started >= 3000) {
+        window.clearInterval(poll);
+        cleanup = init() ?? undefined;
+      }
+    }, 50);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(poll);
+      cleanup?.();
+    };
   }, []);
 
 
