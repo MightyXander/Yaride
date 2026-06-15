@@ -137,12 +137,18 @@ export function StopStep({
 
 export function GeoStep({ onPick, onManual }: { onPick: (id: number, label: string) => void; onManual: () => void }) {
   const [loading, setLoading] = useState(false);
+  const [geoError, setGeoError] = useState<string | null>(null);
   const [nearby, setNearby] = useState<
     { id: number; title: string; district?: string; distanceKm: number }[]
   >([]);
 
   const loadGeo = () => {
+    if (!navigator.geolocation) {
+      setGeoError("Геолокация недоступна в этом браузере");
+      return;
+    }
     setLoading(true);
+    setGeoError(null);
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         try {
@@ -152,7 +158,10 @@ export function GeoStep({ onPick, onManual }: { onPick: (id: number, label: stri
           setLoading(false);
         }
       },
-      () => setLoading(false),
+      () => {
+        setLoading(false);
+        setGeoError("Не удалось получить геолокацию");
+      },
       { enableHighAccuracy: true, timeout: 10000 },
     );
   };
@@ -168,6 +177,9 @@ export function GeoStep({ onPick, onManual }: { onPick: (id: number, label: stri
         >
           {loading ? "Определяем…" : "Показать ближайшие"}
         </button>
+        {geoError ? (
+          <p className="mt-2 text-sm text-destructive px-1">{geoError}</p>
+        ) : null}
       </Section>
       {nearby.length > 0 ? (
         <Section title="Топ-5">
