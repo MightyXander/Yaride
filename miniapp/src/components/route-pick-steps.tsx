@@ -207,7 +207,7 @@ export function RouteDateStep({
   showWeekdayHeaders?: boolean;
   highlightToday?: boolean;
 }) {
-  const today = useMemo(() => new Date(), []);
+  const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth());
   const monthLabel = new Date(year, month, 1).toLocaleDateString("ru-RU", { month: "long", year: "numeric" });
@@ -296,7 +296,8 @@ export function RouteDateStep({
         </Card>
         <button
           onClick={() => {
-            const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+            const now = new Date();
+            const iso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
             onPick(iso);
           }}
           className="mt-3 w-full h-12 rounded-xl bg-secondary text-secondary-foreground font-medium inline-flex items-center justify-center gap-2"
