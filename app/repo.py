@@ -828,8 +828,19 @@ class TripRepository(_BaseRepository):
         """
         params: list[object] = []
         if start_point_id:
-            query += " AND t.start_point_id = ?"
-            params.append(start_point_id)
+            query += """
+                AND (
+                    t.start_point_id = ?
+                    OR (
+                        t.allow_intermediate_pickup = 1
+                        AND EXISTS (
+                            SELECT 1 FROM trip_stops ts
+                            WHERE ts.trip_id = t.id AND ts.stop_id = ?
+                        )
+                    )
+                )
+            """
+            params.extend([start_point_id, start_point_id])
         if end_point_id:
             query += " AND t.end_point_id = ?"
             params.append(end_point_id)

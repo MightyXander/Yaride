@@ -112,6 +112,7 @@ function TripDetailScreen() {
         </Section>
       </div>
       {bookError ? <div className="mx-5 text-sm text-destructive animate-fade-in">{bookError}</div> : null}
+      {canBook ? <div className="h-24" /> : null}
       <BottomCTA
         forceInPage
         visible={canBook}
