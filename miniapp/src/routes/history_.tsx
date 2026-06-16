@@ -7,7 +7,7 @@ import { driverHistoryBadgeStatus, passengerHistoryBadgeStatus } from "@/lib/boo
 import { historyQueryOptions, meQueryOptions } from "@/lib/queries";
 import { useBackButton, useTelegram } from "@/lib/telegram";
 
-export const Route = createFileRoute("/history")({
+export const Route = createFileRoute("/history_")({
   component: HistoryScreen,
 });
 

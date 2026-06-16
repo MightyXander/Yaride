@@ -15,8 +15,7 @@ import { Route as NotificationsRouteImport } from './routes/notifications'
 import { Route as ManageRouteImport } from './routes/manage'
 import { Route as LicenseRouteImport } from './routes/license'
 import { Route as HomeRouteImport } from './routes/home'
-import { Route as HistoryRouteImport } from './routes/history'
-import { Route as HistoryIdRouteImport } from './routes/history.$id'
+import { Route as HistoryRouteImport } from './routes/history_'
 import { Route as FavoritesRouteImport } from './routes/favorites'
 import { Route as CreateRouteImport } from './routes/create'
 import { Route as BookingsRouteImport } from './routes/bookings'
@@ -25,6 +24,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as TripIdRouteImport } from './routes/trip.$id'
 import { Route as RouteMapRouteImport } from './routes/route.map'
 import { Route as RateIdRouteImport } from './routes/rate.$id'
+import { Route as HistoryIdRouteImport } from './routes/history.$id'
 
 const SearchRoute = SearchRouteImport.update({
   id: '/search',
@@ -57,7 +57,7 @@ const HomeRoute = HomeRouteImport.update({
   getParentRoute: () => rootRouteImport,
 } as any)
 const HistoryRoute = HistoryRouteImport.update({
-  id: '/history',
+  id: '/history_',
   path: '/history',
   getParentRoute: () => rootRouteImport,
 } as any)
@@ -114,13 +114,13 @@ export interface FileRoutesByFullPath {
   '/create': typeof CreateRoute
   '/favorites': typeof FavoritesRoute
   '/history': typeof HistoryRoute
-  '/history/$id': typeof HistoryIdRoute
   '/home': typeof HomeRoute
   '/license': typeof LicenseRoute
   '/manage': typeof ManageRoute
   '/notifications': typeof NotificationsRoute
   '/onboarding': typeof OnboardingRoute
   '/search': typeof SearchRoute
+  '/history/$id': typeof HistoryIdRoute
   '/rate/$id': typeof RateIdRoute
   '/route/map': typeof RouteMapRoute
   '/trip/$id': typeof TripIdRoute
@@ -132,13 +132,13 @@ export interface FileRoutesByTo {
   '/create': typeof CreateRoute
   '/favorites': typeof FavoritesRoute
   '/history': typeof HistoryRoute
-  '/history/$id': typeof HistoryIdRoute
   '/home': typeof HomeRoute
   '/license': typeof LicenseRoute
   '/manage': typeof ManageRoute
   '/notifications': typeof NotificationsRoute
   '/onboarding': typeof OnboardingRoute
   '/search': typeof SearchRoute
+  '/history/$id': typeof HistoryIdRoute
   '/rate/$id': typeof RateIdRoute
   '/route/map': typeof RouteMapRoute
   '/trip/$id': typeof TripIdRoute
@@ -150,14 +150,14 @@ export interface FileRoutesById {
   '/bookings': typeof BookingsRoute
   '/create': typeof CreateRoute
   '/favorites': typeof FavoritesRoute
-  '/history': typeof HistoryRoute
-  '/history/$id': typeof HistoryIdRoute
+  '/history_': typeof HistoryRoute
   '/home': typeof HomeRoute
   '/license': typeof LicenseRoute
   '/manage': typeof ManageRoute
   '/notifications': typeof NotificationsRoute
   '/onboarding': typeof OnboardingRoute
   '/search': typeof SearchRoute
+  '/history/$id': typeof HistoryIdRoute
   '/rate/$id': typeof RateIdRoute
   '/route/map': typeof RouteMapRoute
   '/trip/$id': typeof TripIdRoute
@@ -171,13 +171,13 @@ export interface FileRouteTypes {
     | '/create'
     | '/favorites'
     | '/history'
-    | '/history/$id'
     | '/home'
     | '/license'
     | '/manage'
     | '/notifications'
     | '/onboarding'
     | '/search'
+    | '/history/$id'
     | '/rate/$id'
     | '/route/map'
     | '/trip/$id'
@@ -189,13 +189,13 @@ export interface FileRouteTypes {
     | '/create'
     | '/favorites'
     | '/history'
-    | '/history/$id'
     | '/home'
     | '/license'
     | '/manage'
     | '/notifications'
     | '/onboarding'
     | '/search'
+    | '/history/$id'
     | '/rate/$id'
     | '/route/map'
     | '/trip/$id'
@@ -206,14 +206,14 @@ export interface FileRouteTypes {
     | '/bookings'
     | '/create'
     | '/favorites'
-    | '/history'
-    | '/history/$id'
+    | '/history_'
     | '/home'
     | '/license'
     | '/manage'
     | '/notifications'
     | '/onboarding'
     | '/search'
+    | '/history/$id'
     | '/rate/$id'
     | '/route/map'
     | '/trip/$id'
@@ -226,13 +226,13 @@ export interface RootRouteChildren {
   CreateRoute: typeof CreateRoute
   FavoritesRoute: typeof FavoritesRoute
   HistoryRoute: typeof HistoryRoute
-  HistoryIdRoute: typeof HistoryIdRoute
   HomeRoute: typeof HomeRoute
   LicenseRoute: typeof LicenseRoute
   ManageRoute: typeof ManageRoute
   NotificationsRoute: typeof NotificationsRoute
   OnboardingRoute: typeof OnboardingRoute
   SearchRoute: typeof SearchRoute
+  HistoryIdRoute: typeof HistoryIdRoute
   RateIdRoute: typeof RateIdRoute
   RouteMapRoute: typeof RouteMapRoute
   TripIdRoute: typeof TripIdRoute
@@ -282,8 +282,8 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof HomeRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/history': {
-      id: '/history'
+    '/history_': {
+      id: '/history_'
       path: '/history'
       fullPath: '/history'
       preLoaderRoute: typeof HistoryRouteImport
@@ -362,13 +362,13 @@ const rootRouteChildren: RootRouteChildren = {
   CreateRoute: CreateRoute,
   FavoritesRoute: FavoritesRoute,
   HistoryRoute: HistoryRoute,
-  HistoryIdRoute: HistoryIdRoute,
   HomeRoute: HomeRoute,
   LicenseRoute: LicenseRoute,
   ManageRoute: ManageRoute,
   NotificationsRoute: NotificationsRoute,
   OnboardingRoute: OnboardingRoute,
   SearchRoute: SearchRoute,
+  HistoryIdRoute: HistoryIdRoute,
   RateIdRoute: RateIdRoute,
   RouteMapRoute: RouteMapRoute,
   TripIdRoute: TripIdRoute,
