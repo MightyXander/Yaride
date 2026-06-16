@@ -842,8 +842,19 @@ class TripRepository(_BaseRepository):
             """
             params.extend([start_point_id, start_point_id])
         if end_point_id:
-            query += " AND t.end_point_id = ?"
-            params.append(end_point_id)
+            query += f"""
+                AND (
+                    t.end_point_id = ?
+                    OR (
+                        t.allow_intermediate_pickup = {self._dialect.bool_true()}
+                        AND EXISTS (
+                            SELECT 1 FROM trip_stops ts2
+                            WHERE ts2.trip_id = t.id AND ts2.stop_id = ?
+                        )
+                    )
+                )
+            """
+            params.extend([end_point_id, end_point_id])
         if start_district is not None:
             query += " AND COALESCE(sp.district, '') = ?"
             params.append(str(start_district).strip())
