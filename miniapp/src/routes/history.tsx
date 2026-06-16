@@ -1,14 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Star } from "lucide-react";
-import {
-  Card,
-  EmptyState,
-  Screen,
-  ScreenHeader,
-  Section,
-  StatusBadge,
-} from "@/components/ui-kit";
+import { Card, EmptyState, Screen, ScreenHeader, Section, StatusBadge } from "@/components/ui-kit";
 import type { ApiHistoryDriver, ApiHistoryPassenger } from "@/lib/api";
 import { driverHistoryBadgeStatus, passengerHistoryBadgeStatus } from "@/lib/booking-status";
 import { historyQueryOptions, meQueryOptions } from "@/lib/queries";
@@ -57,13 +50,21 @@ function HistoryScreen() {
           {role === "passenger"
             ? (items as ApiHistoryPassenger[]).map((item) => (
                 <Card key={item.bookingId} className="!p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <StatusBadge status={passengerHistoryBadgeStatus(item)} />
-                  </div>
-                  <div className="text-[15px] font-semibold">
-                    {item.fromTitle} → {item.toTitle}
-                  </div>
-                  <div className="text-[12px] text-muted-foreground mt-1">{item.whenLabel}</div>
+                  <button
+                    onClick={() => {
+                      haptic("light");
+                      navigate({ to: "/history/$id", params: { id: String(item.tripId) } });
+                    }}
+                    className="block w-full text-left"
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <StatusBadge status={passengerHistoryBadgeStatus(item)} />
+                    </div>
+                    <div className="text-[15px] font-semibold">
+                      {item.fromTitle} → {item.toTitle}
+                    </div>
+                    <div className="text-[12px] text-muted-foreground mt-1">{item.whenLabel}</div>
+                  </button>
                   <div className="mt-3 pt-3 hairline-t flex items-center justify-between">
                     {item.myRatingStars ? (
                       <span className="text-[13px] text-muted-foreground flex items-center gap-1">
@@ -87,7 +88,14 @@ function HistoryScreen() {
                 </Card>
               ))
             : (items as ApiHistoryDriver[]).map((item) => (
-                <Card key={item.tripId} className="!p-4">
+                <Card
+                  key={item.tripId}
+                  onClick={() => {
+                    haptic("light");
+                    navigate({ to: "/history/$id", params: { id: String(item.tripId) } });
+                  }}
+                  className="!p-4"
+                >
                   <div className="flex items-center justify-between mb-3">
                     <StatusBadge status={driverHistoryBadgeStatus(item)} />
                   </div>
