@@ -70,6 +70,18 @@ class SqlDialect:
             ON CONFLICT (locality, district, admin_area, title) DO NOTHING
         """
 
+    def insert_ignore_trip_stop(self) -> str:
+        if self.is_sqlite:
+            return """
+                INSERT OR IGNORE INTO trip_stops(trip_id, stop_id, order_index)
+                VALUES (?, ?, ?)
+            """
+        return """
+            INSERT INTO trip_stops(trip_id, stop_id, order_index)
+            VALUES (?, ?, ?)
+            ON CONFLICT (trip_id, stop_id) DO NOTHING
+        """
+
     def adapt_sql(self, sql: str) -> str:
         if self.is_sqlite:
             return sql

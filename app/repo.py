@@ -741,6 +741,30 @@ class TripRepository(_BaseRepository):
         with self.db.transaction() as conn:
             conn.execute("UPDATE trips SET comment = ? WHERE id = ?", (comment, trip_id))
 
+    def disable_intermediate_pickup(self, trip_id: int) -> None:
+        """Отключить промежуточные посадки для поездки (soft fail после ошибки API)."""
+        with self.db.transaction() as conn:
+            conn.execute(
+                "UPDATE trips SET allow_intermediate_pickup = 0 WHERE id = ?",
+                (trip_id,),
+            )
+
+    def save_route_compute(
+        self,
+        trip_id: int,
+        polyline_json: str,
+        intermediate_stops: list[dict],
+    ) -> None:
+        """Сохраняет polyline маршрута и промежуточные остановки (схема v12)."""
+        insert_stop_sql = self._dialect.insert_ignore_trip_stop()
+        with self.db.transaction() as conn:
+            conn.execute(
+                "UPDATE trips SET route_polyline = ? WHERE id = ?",
+                (polyline_json, trip_id),
+            )
+            for stop in intermediate_stops:
+                conn.execute(insert_stop_sql, (trip_id, stop["id"], stop["order_index"]))
+
     def get_trip_public_card(self, trip_id: int) -> sqlite3.Row | None:
         with self.db.transaction() as conn:
             return conn.execute(

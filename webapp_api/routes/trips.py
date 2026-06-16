@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.cache import TRIPS_SEARCH_TTL_S, cache_get, cache_set, invalidate_trip_search_cache
@@ -11,6 +13,8 @@ from webapp_api.config import WebAppSettings
 from webapp_api.deps import get_auth_user, get_repo, get_settings
 from webapp_api.schemas import CreateTripRequest
 from webapp_api.serializers import trip_card_to_dict
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/trips", tags=["trips"])
 
@@ -132,6 +136,47 @@ def create_trip(
             repo.trips.set_trip_comment(trip_id, body.comment)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _enrich_with_intermediate_stops(repo, trip_id, body.start_point_id, body.end_point_id)
     invalidate_trip_search_cache()
     return {"id": trip_id}
+
+
+def _enrich_with_intermediate_stops(
+    repo: Repo,
+    trip_id: int,
+    start_point_id: int,
+    end_point_id: int,
+) -> None:
+    """Запрашивает маршрут у Яндекса и сохраняет промежуточные остановки. Soft fail."""
+    from app.route_compute import (
+        compute_intermediate_stops,
+        fetch_yandex_polyline,
+        polyline_to_json,
+    )
+
+    try:
+        sp = repo.routes.get_point(start_point_id)
+        ep = repo.routes.get_point(end_point_id)
+        if sp is None or ep is None or sp["latitude"] is None or ep["latitude"] is None:
+            repo.trips.disable_intermediate_pickup(trip_id)
+            return
+
+        polyline = fetch_yandex_polyline(
+            float(sp["latitude"]), float(sp["longitude"]),
+            float(ep["latitude"]), float(ep["longitude"]),
+        )
+        if polyline is None:
+            repo.trips.disable_intermediate_pickup(trip_id)
+            return
+
+        locality = str(sp["locality"])
+        all_stops = repo.routes.list_all_stops_with_coords(locality)
+        intermediate = compute_intermediate_stops(polyline, all_stops, start_point_id, end_point_id)
+        repo.trips.save_route_compute(trip_id, polyline_to_json(polyline), intermediate)
+    except Exception:
+        logger.warning("route_compute failed for trip %s", trip_id, exc_info=True)
+        try:
+            repo.trips.disable_intermediate_pickup(trip_id)
+        except Exception:
+            pass
 
