@@ -75,6 +75,8 @@ CREATE TABLE IF NOT EXISTS trips (
     seats_booked INTEGER NOT NULL DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'cancelled', 'completed')),
     comment TEXT,
+    allow_intermediate_pickup BOOLEAN NOT NULL DEFAULT TRUE,
+    route_polyline TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -85,6 +87,7 @@ CREATE TABLE IF NOT EXISTS bookings (
     status TEXT NOT NULL DEFAULT 'active'
         CHECK (status IN ('active', 'cancelled_by_passenger', 'cancelled_by_driver')),
     cancel_reason TEXT,
+    boarding_stop_id INTEGER REFERENCES route_points(id),
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     cancelled_at TIMESTAMPTZ,
     UNIQUE(trip_id, passenger_id)
@@ -171,6 +174,17 @@ CREATE TABLE IF NOT EXISTS trip_templates (
 
 CREATE INDEX IF NOT EXISTS idx_trip_templates_driver ON trip_templates(driver_id);
 
+CREATE TABLE IF NOT EXISTS trip_stops (
+    id SERIAL PRIMARY KEY,
+    trip_id INTEGER NOT NULL REFERENCES trips(id),
+    stop_id INTEGER NOT NULL REFERENCES route_points(id),
+    order_index INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(trip_id, stop_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_trip_stops_trip ON trip_stops(trip_id);
+CREATE INDEX IF NOT EXISTS idx_trip_stops_stop ON trip_stops(stop_id);
+
 CREATE INDEX IF NOT EXISTS idx_trips_status_date_route
     ON trips(status, trip_date, start_point_id, end_point_id);
 CREATE INDEX IF NOT EXISTS idx_bookings_passenger_status ON bookings(passenger_id, status);
@@ -255,12 +269,43 @@ class PostgresDatabase:
                 conn.commit()
                 return
             v = int(row["version"])
-            if v < CURRENT_SCHEMA_VERSION:
-                raise RuntimeError(
-                    f"PostgreSQL schema v{v} устарела; ожидается v{CURRENT_SCHEMA_VERSION}. "
-                    "Пересоздайте БД или выполните migrate_sqlite_to_postgres."
+            while v < CURRENT_SCHEMA_VERSION:
+                self._apply_pg_migration(conn, v, v + 1)
+                conn.execute(
+                    "UPDATE schema_version SET version = %s WHERE id = 1", (v + 1,)
                 )
+                conn.commit()
+                v += 1
             conn.commit()
+
+    def _apply_pg_migration(self, conn: Any, from_v: int, to_v: int) -> None:
+        if from_v == 11 and to_v == 12:
+            self._pg_migrate_v11_to_v12(conn)
+            return
+        raise RuntimeError(f"No PostgreSQL migration defined from v{from_v} to v{to_v}")
+
+    def _pg_migrate_v11_to_v12(self, conn: Any) -> None:
+        """Промежуточные посадки: новые колонки в trips/bookings + таблица trip_stops."""
+        conn.execute("""
+            ALTER TABLE trips
+                ADD COLUMN IF NOT EXISTS allow_intermediate_pickup BOOLEAN NOT NULL DEFAULT TRUE,
+                ADD COLUMN IF NOT EXISTS route_polyline TEXT
+        """)
+        conn.execute("""
+            ALTER TABLE bookings
+                ADD COLUMN IF NOT EXISTS boarding_stop_id INTEGER REFERENCES route_points(id)
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS trip_stops (
+                id SERIAL PRIMARY KEY,
+                trip_id INTEGER NOT NULL REFERENCES trips(id),
+                stop_id INTEGER NOT NULL REFERENCES route_points(id),
+                order_index INTEGER NOT NULL DEFAULT 0,
+                UNIQUE(trip_id, stop_id)
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_trip_stops_trip ON trip_stops(trip_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_trip_stops_stop ON trip_stops(stop_id)")
 
     def insert_returning_id(self, adapter: _PgConnAdapter, sql: str, params: tuple[Any, ...]) -> int:
         adapted = sql.strip().replace("?", "%s")

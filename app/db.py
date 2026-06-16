@@ -24,7 +24,8 @@ from app.sql_dialect import SqlDialect
 # v8 — поля под Mini App: авто водителя (users.car_*) и комментарий к поездке (trips.comment).
 # v9 — маршруты-шаблоны водителя (trip_templates): быстрая повторная публикация + задел под расписание.
 # v10 — модерация водителей в админке: driver_moderation_status (pending/approved/rejected).
-CURRENT_SCHEMA_VERSION = 11
+# v12 — промежуточные посадки: trip_stops, trips.allow_intermediate_pickup/route_polyline, bookings.boarding_stop_id.
+CURRENT_SCHEMA_VERSION = 12
 SCHEMA_VERSION = CURRENT_SCHEMA_VERSION
 
 
@@ -183,6 +184,9 @@ class Database:
         if from_v == 10 and to_v == 11:
             self._migrate_v10_to_v11(conn)
             return
+        if from_v == 11 and to_v == 12:
+            self._migrate_v11_to_v12(conn)
+            return
         raise RuntimeError(f"No migration defined from v{from_v} to v{to_v}")
 
     def _migrate_v1_to_v2(self, conn: sqlite3.Connection) -> None:
@@ -233,6 +237,40 @@ class Database:
         cols = self._sqlite_table_columns(conn, "users")
         if cols and "min_passenger_rating" in cols:
             conn.execute("UPDATE users SET min_passenger_rating = NULL")
+
+    def _migrate_v11_to_v12(self, conn: sqlite3.Connection) -> None:
+        """Промежуточные посадки: trip_stops, флаг и polyline на поездке, точка посадки в брони."""
+        self._ensure_intermediate_pickup(conn)
+
+    def _ensure_intermediate_pickup(self, conn: sqlite3.Connection) -> None:
+        """Идемпотентно создаёт структуры для промежуточных посадок."""
+        trip_cols = self._sqlite_table_columns(conn, "trips") or set()
+        if "allow_intermediate_pickup" not in trip_cols:
+            conn.execute(
+                "ALTER TABLE trips ADD COLUMN allow_intermediate_pickup INTEGER NOT NULL DEFAULT 1"
+            )
+        if "route_polyline" not in trip_cols:
+            conn.execute("ALTER TABLE trips ADD COLUMN route_polyline TEXT")
+
+        booking_cols = self._sqlite_table_columns(conn, "bookings") or set()
+        if "boarding_stop_id" not in booking_cols:
+            conn.execute("ALTER TABLE bookings ADD COLUMN boarding_stop_id INTEGER")
+
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS trip_stops (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trip_id INTEGER NOT NULL,
+                stop_id INTEGER NOT NULL,
+                order_index INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY(trip_id) REFERENCES trips(id),
+                FOREIGN KEY(stop_id) REFERENCES route_points(id),
+                UNIQUE(trip_id, stop_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_trip_stops_trip ON trip_stops(trip_id);
+            CREATE INDEX IF NOT EXISTS idx_trip_stops_stop ON trip_stops(stop_id);
+            """
+        )
 
     def _ensure_trip_templates_table(self, conn: sqlite3.Connection) -> None:
         """Шаблон = постоянный маршрут водителя с дефолтами. schedule_* — задел под авто-публикацию (этап B-2)."""
@@ -446,6 +484,7 @@ class Database:
         self._ensure_design_fields(conn)
         self._ensure_trip_templates_table(conn)
         self._ensure_users_driver_moderation(conn)
+        self._ensure_intermediate_pickup(conn)
 
     def _ensure_users_driver_moderation(self, conn: sqlite3.Connection) -> None:
         cols = self._sqlite_table_columns(conn, "users")
