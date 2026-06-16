@@ -150,7 +150,7 @@ def _enrich_with_intermediate_stops(
     """Запрашивает маршрут у Яндекса и сохраняет промежуточные остановки. Soft fail."""
     from app.route_compute import (
         compute_intermediate_stops,
-        fetch_yandex_polyline,
+        fetch_route_polyline,
         polyline_to_json,
     )
 
@@ -161,7 +161,7 @@ def _enrich_with_intermediate_stops(
             repo.trips.disable_intermediate_pickup(trip_id)
             return
 
-        polyline = fetch_yandex_polyline(
+        polyline = fetch_route_polyline(
             float(sp["latitude"]), float(sp["longitude"]),
             float(ep["latitude"]), float(ep["longitude"]),
         )
