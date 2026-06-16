@@ -96,6 +96,7 @@ export interface ApiTrip {
   seatsBooked?: number;
   status: string;
   driverName?: string;
+  driverUsername?: string | null;
   driverRating: number;
   driverTripsCount?: number;
   comment?: string;

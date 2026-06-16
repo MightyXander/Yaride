@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
-import { Shield, Users } from "lucide-react";
+import { MessageCircle, Shield, Users } from "lucide-react";
 import { BookedSuccessSheet } from "@/components/booked-success-sheet";
 import { YandexRouteCard } from "@/components/yandex-route-card";
 import { BottomCTA, Card, Screen, ScreenHeader, Section } from "@/components/ui-kit";
@@ -18,7 +18,7 @@ function TripDetailScreen() {
   const tripId = Number(id);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { haptic } = useTelegram();
+  const { haptic, openExternal } = useTelegram();
   const tripQ = useQuery(tripQueryOptions(tripId));
   const bookingsQ = useQuery(bookingsQueryOptions());
   const [bookError, setBookError] = useState<string | null>(null);
@@ -91,6 +91,16 @@ function TripDetailScreen() {
                 </div>
               </div>
             </div>
+            {alreadyBooked && trip.driverUsername ? (
+              <button
+                type="button"
+                onClick={() => openExternal(`https://t.me/${trip.driverUsername}`)}
+                className="mt-3 w-full h-10 rounded-xl bg-secondary text-secondary-foreground font-semibold flex items-center justify-center gap-2 press"
+              >
+                <MessageCircle className="size-4" />
+                Написать водителю
+              </button>
+            ) : null}
           </Card>
         </Section>
         <Section title="Маршрут">

@@ -786,6 +786,7 @@ class TripRepository(_BaseRepository):
                     ep.latitude AS end_lat,
                     ep.longitude AS end_lng,
                     u.name AS driver_name,
+                    u.username AS driver_username,
                     u.rating_avg AS driver_rating
                 FROM trips t
                 JOIN route_points sp ON sp.id = t.start_point_id
