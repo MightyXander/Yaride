@@ -182,9 +182,9 @@ export function BottomCTA({
 
   const bar = (
     <div
-      className={`fixed inset-x-0 z-50 px-4 pt-3 bg-background/95 backdrop-blur ${
-        forceInPage ? "" : "border-t border-border"
-      } pb-3`}
+      className={`fixed inset-x-0 z-50 px-4 pt-3 pb-3 ${
+        forceInPage ? "" : "bg-background/95 backdrop-blur border-t border-border"
+      }`}
       style={{ bottom }}
     >
       <Button
