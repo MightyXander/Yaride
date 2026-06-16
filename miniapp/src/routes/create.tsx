@@ -9,6 +9,7 @@ import {
   BottomCTA,
   Card,
   Field,
+  NavBreadcrumbs,
   Screen,
   ScreenHeader,
   Section,
@@ -528,6 +529,11 @@ function CreateScreen() {
         <TimePicker
           value={time}
           pending={wizardMode === "template" && publishMut.isPending}
+          crumbs={
+            wizardMode === "template"
+              ? [selectedTemplate?.fromTitle ?? "", "→", selectedTemplate?.toTitle ?? ""]
+              : [fromLabel, "→", toLabel]
+          }
           onPick={(t) => {
             haptic("selection");
             setTime(t);
@@ -611,15 +617,18 @@ function TimePicker({
   value,
   onPick,
   pending,
+  crumbs,
 }: {
   value: string | null;
   onPick: (t: string) => void;
   pending?: boolean;
+  crumbs?: string[];
 }) {
   const [draft, setDraft] = useState<string | null>(value);
   return (
     <>
       <ScreenHeader title="Во сколько" subtitle="Крути колёсики — как digital crown" />
+      {crumbs ? <NavBreadcrumbs items={crumbs} /> : null}
       <Section>
         <CrownTimePicker value={value} onChange={setDraft} />
         <button
