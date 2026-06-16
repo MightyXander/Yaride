@@ -70,6 +70,12 @@ class SqlDialect:
             ON CONFLICT (locality, district, admin_area, title) DO NOTHING
         """
 
+    def bool_true(self) -> str:
+        return "1" if self.is_sqlite else "TRUE"
+
+    def bool_false(self) -> str:
+        return "0" if self.is_sqlite else "FALSE"
+
     def insert_ignore_trip_stop(self) -> str:
         if self.is_sqlite:
             return """

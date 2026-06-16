@@ -745,7 +745,7 @@ class TripRepository(_BaseRepository):
         """Отключить промежуточные посадки для поездки (soft fail после ошибки API)."""
         with self.db.transaction() as conn:
             conn.execute(
-                "UPDATE trips SET allow_intermediate_pickup = 0 WHERE id = ?",
+                f"UPDATE trips SET allow_intermediate_pickup = {self._dialect.bool_false()} WHERE id = ?",
                 (trip_id,),
             )
 
@@ -828,11 +828,11 @@ class TripRepository(_BaseRepository):
         """
         params: list[object] = []
         if start_point_id:
-            query += """
+            query += f"""
                 AND (
                     t.start_point_id = ?
                     OR (
-                        t.allow_intermediate_pickup = 1
+                        t.allow_intermediate_pickup = {self._dialect.bool_true()}
                         AND EXISTS (
                             SELECT 1 FROM trip_stops ts
                             WHERE ts.trip_id = t.id AND ts.stop_id = ?
