@@ -446,7 +446,7 @@ function Results({
               <button
                 type="button"
                 onClick={onChangeDate}
-                className="h-12 rounded-xl bg-secondary text-secondary-foreground font-semibold press inline-flex items-center justify-center gap-2"
+                className="h-12 px-6 rounded-xl bg-secondary text-secondary-foreground font-semibold press inline-flex items-center justify-center gap-2"
               >
                 <CalendarDays className="size-4" />
                 Выбрать другую дату
