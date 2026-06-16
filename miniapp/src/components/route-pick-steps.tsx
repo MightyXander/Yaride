@@ -211,6 +211,7 @@ export function RouteDateStep({
   showMonthNav = false,
   showWeekdayHeaders = false,
   highlightToday = false,
+  crumbs,
 }: {
   onPick: (date: string) => void;
   title?: string;
@@ -218,6 +219,7 @@ export function RouteDateStep({
   showMonthNav?: boolean;
   showWeekdayHeaders?: boolean;
   highlightToday?: boolean;
+  crumbs?: string[];
 }) {
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
@@ -268,6 +270,7 @@ export function RouteDateStep({
   return (
     <>
       <ScreenHeader title={title} subtitle={subtitle} />
+      {crumbs ? <NavBreadcrumbs items={crumbs} /> : null}
       <Section>
         <Card className="!p-4">
           {monthHeader}

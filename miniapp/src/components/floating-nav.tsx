@@ -18,7 +18,7 @@ const ITEMS: NavItem[] = [
   { to: "/account", label: "Профиль", Icon: UserRound },
 ];
 
-const HIDDEN_ON = ["/onboarding", "/rate", "/route/map", "/search"];
+const HIDDEN_ON = ["/onboarding", "/rate", "/route/map"];
 
 /** Высота pill без внешних отступов (h-[3.75rem]). */
 export const FLOATING_NAV_HEIGHT = "3.75rem";
@@ -65,10 +65,7 @@ function FloatingNavBar({ activeTab }: { activeTab: NavTabRoot }) {
                   haptic(active ? "light" : "selection");
                 }}
                 onClick={() => {
-                  if (active) {
-                    haptic("light");
-                    return;
-                  }
+                  haptic("light");
                   void router.navigate({ to });
                 }}
                 className="relative z-10 flex min-w-0 flex-row items-center justify-center rounded-full touch-manipulation select-none"

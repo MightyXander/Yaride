@@ -446,14 +446,18 @@ export function TripCard({ trip, onClick }: { trip: TripCardData; onClick?: () =
 }
 
 export function NavBreadcrumbs({ items }: { items: string[] }) {
+  if (items.length === 0) return null;
   return (
-    <nav className="px-5 mt-1 text-xs text-muted-foreground truncate" aria-label="Хлебные крошки">
-      {items.map((it, i) => (
-        <span key={i}>
-          {i > 0 ? <span className="mx-1.5 opacity-60">›</span> : null}
-          <span className={i === items.length - 1 ? "text-foreground font-medium" : ""}>{it}</span>
-        </span>
-      ))}
-    </nav>
+    <div className="px-5 mt-1 mb-0.5 flex items-center gap-1.5 overflow-hidden whitespace-nowrap" aria-label="Маршрут">
+      {items.map((it, i) =>
+        it === "→" ? (
+          <span key={i} className="text-[11px] text-brand shrink-0 font-medium">→</span>
+        ) : (
+          <span key={i} className={`text-[11px] truncate ${i === items.length - 1 ? "text-foreground/80 font-medium" : "text-muted-foreground"}`}>
+            {it}
+          </span>
+        )
+      )}
+    </div>
   );
 }

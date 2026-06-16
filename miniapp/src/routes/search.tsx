@@ -217,7 +217,7 @@ function SearchScreen() {
           onMap={() => openMap("from")}
           onGeo={() => setPhase({ kind: "from-geo" })}
           onPick={(d) => setPhase({ kind: "from-stop", district: d })}
-          crumbs={["Ярославль"]}
+          crumbs={[]}
         />
       )}
 
@@ -225,7 +225,7 @@ function SearchScreen() {
         <StopStep
           district={phase.district}
           title="Остановка посадки"
-          crumbs={["Ярославль", phase.district]}
+          crumbs={[phase.district]}
           onPick={(id, label) =>
             setPhase({
               kind: "to-district",
@@ -266,7 +266,7 @@ function SearchScreen() {
               district: d,
             })
           }
-          crumbs={["Ярославль", phase.fromLabel, "→"]}
+          crumbs={[phase.fromLabel, "→"]}
         />
       )}
 
@@ -274,7 +274,7 @@ function SearchScreen() {
         <StopStep
           district={phase.district}
           title="Остановка высадки"
-          crumbs={["Ярославль", phase.district]}
+          crumbs={[phase.fromLabel, "→", phase.district]}
           onPick={(id, label) =>
             setPhase({
               kind: "date",
@@ -291,6 +291,7 @@ function SearchScreen() {
 
       {phase.kind === "date" && (
         <RouteDateStep
+          crumbs={[phase.fromLabel, "→", phase.toLabel]}
           onPick={(date) =>
             setPhase({
               kind: "results",

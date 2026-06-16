@@ -470,14 +470,14 @@ function CreateScreen() {
             setPickDistrict(d);
             setPickView("stop");
           }}
-          crumbs={["Ярославль"]}
+          crumbs={[]}
         />
       )}
       {step === "from" && pickView === "stop" && pickDistrict && (
         <StopStep
           district={pickDistrict}
           title="Остановка посадки"
-          crumbs={["Ярославль", pickDistrict]}
+          crumbs={[pickDistrict]}
           onPick={finishFromPick}
         />
       )}
@@ -495,14 +495,14 @@ function CreateScreen() {
             setPickDistrict(d);
             setPickView("stop");
           }}
-          crumbs={["Ярославль", fromLabel, "→"]}
+          crumbs={[fromLabel, "→"]}
         />
       )}
       {step === "to" && pickView === "stop" && pickDistrict && (
         <StopStep
           district={pickDistrict}
           title="Остановка высадки"
-          crumbs={["Ярославль", pickDistrict]}
+          crumbs={[fromLabel, "→", pickDistrict]}
           onPick={finishToPick}
         />
       )}
@@ -513,6 +513,11 @@ function CreateScreen() {
           showMonthNav={wizardMode !== "template"}
           showWeekdayHeaders={wizardMode !== "template"}
           highlightToday={wizardMode !== "template"}
+          crumbs={
+            wizardMode === "template"
+              ? [selectedTemplate?.fromTitle ?? "", "→", selectedTemplate?.toTitle ?? ""]
+              : [fromLabel, "→", toLabel]
+          }
           onPick={(d) => {
             setDate(d);
             setStep("time");
