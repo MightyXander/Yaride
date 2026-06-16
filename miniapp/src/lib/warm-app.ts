@@ -128,6 +128,9 @@ export function startWarmApp(
   if (warmTask) return warmTask;
 
   warmTask = (async () => {
+    // Прогреваем ассеты карты немедленно — не ждём перехода на /search или /create.
+    preloadMapAssets(queryClient);
+
     const paths = menuPathsForRole(opts.role, opts.activeDriver);
     await Promise.allSettled(
       paths.flatMap((path) => [
