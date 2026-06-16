@@ -284,6 +284,10 @@ export function RouteDateStep({
               const cellKey = new Date(year, month, d).getTime();
               const past = cellKey < todayKey;
               const isToday = highlightToday && cellKey === todayKey;
+              const weekday = new Date(year, month, d)
+                .toLocaleDateString("ru-RU", { weekday: "short" })
+                .replace(/\.$/, "")
+                .replace(/^./, (c) => c.toUpperCase());
               return (
                 <button
                   key={i}
@@ -292,7 +296,7 @@ export function RouteDateStep({
                   onClick={() =>
                     onPick(`${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`)
                   }
-                  className={`h-10 rounded-lg text-sm font-medium ${
+                  className={`h-12 rounded-lg text-sm font-medium flex flex-col items-center justify-center ${
                     past
                       ? "text-muted-foreground/50"
                       : isToday
@@ -300,7 +304,8 @@ export function RouteDateStep({
                         : "text-foreground hover:bg-secondary active:bg-secondary"
                   }`}
                 >
-                  {d}
+                  <span className="text-[10px] leading-none opacity-70">{weekday}</span>
+                  <span className="leading-none mt-0.5">{d}</span>
                 </button>
               );
             })}
