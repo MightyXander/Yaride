@@ -71,20 +71,6 @@ export function BookedSuccessSheet({
           }
           className="mt-4"
         />
-        {tripQ.data?.driverUsername ? (
-          <button
-            type="button"
-            onClick={() => {
-              if (tripQ.data?.driverUsername) {
-                window.open(`https://t.me/${tripQ.data.driverUsername}`, "_blank");
-              }
-            }}
-            className="w-full h-12 rounded-xl bg-primary text-primary-foreground font-semibold press flex items-center justify-center gap-2 mt-4"
-          >
-            <MessageCircle className="size-4" />
-            Написать водителю
-          </button>
-        ) : null}
         <p className="text-sm text-muted-foreground text-center mt-4">Добавить маршрут в избранное?</p>
         <div className="mt-3 grid grid-cols-2 gap-3">
           <button

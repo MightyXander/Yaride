@@ -99,7 +99,6 @@ export interface ApiTrip {
   driverUsername?: string | null;
   driverRating: number;
   driverTripsCount?: number;
-  driverUsername?: string | null;
   comment?: string;
   carModel?: string;
   carColor?: string;
