@@ -6,3 +6,8 @@ yaride.db-shm
 .pytest_cache/
 .env
 backups/
+.venv/
+
+# Agentic orchestration runtime (живой контекст воркеров — не версионируется)
+.agentic/context/worker_prompts/
+.agentic/context/wsl_status.json
