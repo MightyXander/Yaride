@@ -1,0 +1,23 @@
+{
+  "$schema": "agentic/wsl-isolation/v1",
+  "enabled": true,
+  "distro": "Ubuntu-24.04",
+  "workspace_root": "/home/user/agentic-workspaces",
+  "project_name": "agentic-dev",
+  "project_path": "/home/user/agentic-workspaces/agentic-dev",
+  "windows_project_path": "/mnt/c/Users/user",
+  "git_remote": "origin",
+  "default_branch": "master",
+  "repo_url": "https://github.com/MightyXander/agentic-dev.git",
+  "isolation": {
+    "native_filesystem": true,
+    "dedicated_workspace": true,
+    "env_marker": "AGENTIC_WSL_WORKER",
+    "restrict_to_project": true
+  },
+  "worker": {
+    "python": "python3",
+    "timeout_seconds": 3600,
+    "auto_push_branch": true
+  }
+}
