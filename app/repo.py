@@ -13,6 +13,13 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
+from app.analytics import (
+    EVENT_BOOKING_CANCELLED,
+    EVENT_BOOKING_CREATED,
+    EVENT_SEARCH,
+    EVENT_TRIP_CREATED,
+    record_event,
+)
 from app.database import DbHandle, is_unique_violation
 from app.driver_access import (
     DRIVER_MOD_APPROVED,
@@ -717,7 +724,7 @@ class TripRepository(_BaseRepository):
             if trip_start <= datetime.now():
                 raise ValueError("Нельзя создать поездку на прошедшее время.")
 
-            return self.db.insert_returning_id(
+            trip_id = self.db.insert_returning_id(
                 conn,
                 """
                 INSERT INTO trips(
@@ -735,6 +742,8 @@ class TripRepository(_BaseRepository):
                     seats_total,
                 ),
             )
+        record_event(self.db, EVENT_TRIP_CREATED, tg_user_id=tg_driver_id, props={"trip_id": trip_id})
+        return trip_id
 
     def set_trip_comment(self, trip_id: int, comment: str | None) -> None:
         """Сохранить комментарий водителя к поездке (поле под Mini App; схема v8)."""
@@ -870,7 +879,18 @@ class TripRepository(_BaseRepository):
         query += " ORDER BY t.id DESC LIMIT 25"
 
         with self.db.transaction() as conn:
-            return conn.execute(query, tuple(params)).fetchall()
+            rows = conn.execute(query, tuple(params)).fetchall()
+        record_event(
+            self.db,
+            EVENT_SEARCH,
+            props={
+                "results": len(rows),
+                "start_point_id": start_point_id,
+                "end_point_id": end_point_id,
+                "trip_date": trip_date,
+            },
+        )
+        return rows
 
     def list_driver_trips(self, tg_driver_id: int) -> list[sqlite3.Row]:
         with self.db.transaction() as conn:
@@ -1204,7 +1224,13 @@ class BookingRepository(_BaseRepository):
             )
             if cur.rowcount != 1:
                 raise ValueError("Свободных мест нет.")
-            return booking_id
+        record_event(
+            self.db,
+            EVENT_BOOKING_CREATED,
+            tg_user_id=tg_passenger_id,
+            props={"trip_id": trip_id, "booking_id": booking_id},
+        )
+        return booking_id
 
     def list_passenger_bookings(self, tg_passenger_id: int) -> list[sqlite3.Row]:
         with self.db.transaction() as conn:
@@ -1379,7 +1405,14 @@ class BookingRepository(_BaseRepository):
                 "time_slot": booking["time_slot"],
                 "reason": cleaned_reason,
             }
-            return int(booking["trip_id"]), payload
+            cancelled_trip_id = int(booking["trip_id"])
+        record_event(
+            self.db,
+            EVENT_BOOKING_CANCELLED,
+            tg_user_id=tg_passenger_id,
+            props={"trip_id": cancelled_trip_id, "booking_id": booking_id},
+        )
+        return cancelled_trip_id, payload
 
     def list_bookings_for_driver_trip(self, tg_driver_id: int, trip_id: int) -> list[sqlite3.Row]:
         with self.db.transaction() as conn:
