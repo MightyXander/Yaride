@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Check } from "lucide-react";
+import { Check, MessageCircle } from "lucide-react";
 import { YandexRouteCard } from "@/components/yandex-route-card";
 import { tripQueryOptions } from "@/lib/queries";
+import { useTelegram } from "@/lib/telegram";
 
 export function BookedSuccessSheet({
   tripId,
@@ -18,6 +19,7 @@ export function BookedSuccessSheet({
   onAddFavorite: () => void | Promise<void>;
 }) {
   const tripQ = useQuery({ ...tripQueryOptions(tripId), enabled: tripId > 0 });
+  const { openExternal } = useTelegram();
   const [closing, setClosing] = useState(false);
 
   const close = useCallback(() => {
@@ -86,6 +88,16 @@ export function BookedSuccessSheet({
             Добавить
           </button>
         </div>
+        {tripQ.data?.driverUsername ? (
+          <button
+            type="button"
+            onClick={() => openExternal(`https://t.me/${tripQ.data.driverUsername}`)}
+            className="mt-3 w-full h-12 rounded-xl brand-gradient brand-glow text-[#18170f] font-bold flex items-center justify-center gap-2 press"
+          >
+            <MessageCircle className="size-4" />
+            Написать водителю
+          </button>
+        ) : null}
       </div>
     </div>
   );
