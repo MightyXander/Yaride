@@ -71,6 +71,7 @@ function TripDetailScreen() {
     (b) => b.tripId === tripId && b.status === "active",
   );
   const canBook = free > 0 && trip.status === "open" && !alreadyBooked;
+  const canContactDriver = alreadyBooked && trip.driverUsername;
 
   return (
     <Screen>
@@ -123,6 +124,22 @@ function TripDetailScreen() {
       </div>
       {bookError ? <div className="mx-5 text-sm text-destructive animate-fade-in">{bookError}</div> : null}
       {canBook ? <div className="h-24" /> : null}
+      {canContactDriver ? (
+        <Section>
+          <button
+            type="button"
+            onClick={() => {
+              if (trip.driverUsername) {
+                window.open(`https://t.me/${trip.driverUsername}`, "_blank");
+              }
+            }}
+            className="w-full h-12 rounded-xl bg-primary text-primary-foreground font-semibold press flex items-center justify-center gap-2"
+          >
+            <MessageCircle className="size-4" />
+            Написать водителю
+          </button>
+        </Section>
+      ) : null}
       <BottomCTA
         forceInPage
         visible={canBook}
