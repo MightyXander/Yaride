@@ -2050,6 +2050,8 @@ class TripTemplateRepository(_BaseRepository):
         price_rub: int,
         seats_total: int,
         comment: str | None = None,
+        schedule_days: str | None = None,
+        schedule_time: str | None = None,
     ) -> int:
         with self.db.transaction() as conn:
             driver = conn.execute("SELECT * FROM users WHERE tg_user_id = ?", (tg_driver_id,)).fetchone()
@@ -2058,10 +2060,12 @@ class TripTemplateRepository(_BaseRepository):
             return self.db.insert_returning_id(
                 conn,
                 """
-                INSERT INTO trip_templates(driver_id, start_point_id, end_point_id, price_rub, seats_total, comment)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO trip_templates(
+                    driver_id, start_point_id, end_point_id, price_rub, seats_total, comment, schedule_days, schedule_time
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (int(driver["id"]), start_point_id, end_point_id, price_rub, seats_total, comment),
+                (int(driver["id"]), start_point_id, end_point_id, price_rub, seats_total, comment, schedule_days, schedule_time),
             )
 
     def list_templates(self, tg_driver_id: int) -> list[sqlite3.Row]:
@@ -2071,6 +2075,7 @@ class TripTemplateRepository(_BaseRepository):
                 """
                 SELECT
                     tt.id, tt.start_point_id, tt.end_point_id, tt.price_rub, tt.seats_total, tt.comment,
+                    tt.schedule_days, tt.schedule_time,
                     sp.title AS start_title, ep.title AS end_title
                 FROM trip_templates tt
                 JOIN route_points sp ON sp.id = tt.start_point_id
@@ -2097,6 +2102,38 @@ class TripTemplateRepository(_BaseRepository):
                 (template_id, driver_id),
             )
             return cur.rowcount > 0
+
+    def create_trip_from_template(
+        self,
+        tg_driver_id: int,
+        template_id: int,
+        trip_date: str,
+        departure_time: str | None = None,
+    ) -> int:
+        """Создаёт поездку на основе шаблона. Если departure_time не указано, берётся из schedule_time шаблона."""
+        template = self.get_template(tg_driver_id, template_id)
+        if not template:
+            raise ValueError("Шаблон не найден или не принадлежит водителю.")
+
+        final_departure_time = departure_time or template["schedule_time"]
+        if not final_departure_time:
+            raise ValueError("Не указано время отправления (ни в параметрах, ни в шаблоне).")
+
+        trip_repo = TripRepository(self.db)
+        trip_id = trip_repo.create_trip(
+            tg_driver_id,
+            start_point_id=template["start_point_id"],
+            end_point_id=template["end_point_id"],
+            trip_date=trip_date,
+            departure_time=final_departure_time,
+            price_rub=template["price_rub"],
+            seats_total=template["seats_total"],
+        )
+
+        if template["comment"]:
+            trip_repo.set_trip_comment(trip_id, template["comment"])
+
+        return trip_id
 
 
 class Repo:
