@@ -25,7 +25,7 @@ from app.sql_dialect import SqlDialect
 # v9 — маршруты-шаблоны водителя (trip_templates): быстрая повторная публикация + задел под расписание.
 # v10 — модерация водителей в админке: driver_moderation_status (pending/approved/rejected).
 # v12 — промежуточные посадки: trip_stops, trips.allow_intermediate_pickup/route_polyline, bookings.boarding_stop_id.
-CURRENT_SCHEMA_VERSION = 12
+CURRENT_SCHEMA_VERSION = 13
 SCHEMA_VERSION = CURRENT_SCHEMA_VERSION
 
 
@@ -187,6 +187,9 @@ class Database:
         if from_v == 11 and to_v == 12:
             self._migrate_v11_to_v12(conn)
             return
+        if from_v == 12 and to_v == 13:
+            self._migrate_v12_to_v13(conn)
+            return
         raise RuntimeError(f"No migration defined from v{from_v} to v{to_v}")
 
     def _migrate_v1_to_v2(self, conn: sqlite3.Connection) -> None:
@@ -237,6 +240,26 @@ class Database:
         cols = self._sqlite_table_columns(conn, "users")
         if cols and "min_passenger_rating" in cols:
             conn.execute("UPDATE users SET min_passenger_rating = NULL")
+
+    def _migrate_v12_to_v13(self, conn: sqlite3.Connection) -> None:
+        """Продуктовая аналитика: таблица событий воронки (поиск/бронь/отмена)."""
+        self._ensure_analytics_events_table(conn)
+
+    def _ensure_analytics_events_table(self, conn: sqlite3.Connection) -> None:
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS analytics_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event TEXT NOT NULL,
+                tg_user_id INTEGER,
+                props TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_analytics_events_event_created
+                ON analytics_events(event, created_at);
+            """
+        )
 
     def _migrate_v11_to_v12(self, conn: sqlite3.Connection) -> None:
         """Промежуточные посадки: trip_stops, флаг и polyline на поездке, точка посадки в брони."""
@@ -485,6 +508,7 @@ class Database:
         self._ensure_trip_templates_table(conn)
         self._ensure_users_driver_moderation(conn)
         self._ensure_intermediate_pickup(conn)
+        self._ensure_analytics_events_table(conn)
 
     def _ensure_users_driver_moderation(self, conn: sqlite3.Connection) -> None:
         cols = self._sqlite_table_columns(conn, "users")

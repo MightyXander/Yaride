@@ -189,6 +189,17 @@ CREATE INDEX IF NOT EXISTS idx_trips_status_date_route
     ON trips(status, trip_date, start_point_id, end_point_id);
 CREATE INDEX IF NOT EXISTS idx_bookings_passenger_status ON bookings(passenger_id, status);
 CREATE INDEX IF NOT EXISTS idx_bookings_trip_status ON bookings(trip_id, status);
+
+CREATE TABLE IF NOT EXISTS analytics_events (
+    id SERIAL PRIMARY KEY,
+    event TEXT NOT NULL,
+    tg_user_id BIGINT,
+    props TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_analytics_events_event_created
+    ON analytics_events(event, created_at);
 """
 
 
@@ -282,7 +293,26 @@ class PostgresDatabase:
         if from_v == 11 and to_v == 12:
             self._pg_migrate_v11_to_v12(conn)
             return
+        if from_v == 12 and to_v == 13:
+            self._pg_migrate_v12_to_v13(conn)
+            return
         raise RuntimeError(f"No PostgreSQL migration defined from v{from_v} to v{to_v}")
+
+    def _pg_migrate_v12_to_v13(self, conn: Any) -> None:
+        """Продуктовая аналитика: таблица событий воронки (поиск/бронь/отмена)."""
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS analytics_events (
+                id SERIAL PRIMARY KEY,
+                event TEXT NOT NULL,
+                tg_user_id BIGINT,
+                props TEXT,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_analytics_events_event_created "
+            "ON analytics_events(event, created_at)"
+        )
 
     def _pg_migrate_v11_to_v12(self, conn: Any) -> None:
         """Промежуточные посадки: новые колонки в trips/bookings + таблица trip_stops."""
