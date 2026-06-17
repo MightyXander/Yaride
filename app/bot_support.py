@@ -259,7 +259,7 @@ async def push_main_menu_after_restart(bot: Bot, repo: Repo) -> None:
     отправить новое сообщение с актуальной клавиатурой. TelegramForbiddenError и
     аналогичные ошибки блокировки пропускаются — пользователь сам не хочет сообщений.
     """
-    if not _env_bool("YARIDE_PUSH_MENU_ON_START", True):
+    if not _env_bool("YARIDE_PUSH_MENU_ON_START", False):
         logger.info("Меню после рестарта отключено (YARIDE_PUSH_MENU_ON_START)")
         return
     ids = repo.users.list_all_tg_user_ids()
