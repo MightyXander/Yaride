@@ -11,3 +11,4 @@ backups/
 # Agentic orchestration runtime (живой контекст воркеров — не версионируется)
 .agentic/context/worker_prompts/
 .agentic/context/wsl_status.json
+.agentic/context/session_state.json
