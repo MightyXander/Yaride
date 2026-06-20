@@ -169,74 +169,6 @@ class KeyboardFactory:
         kb.adjust(1)
         return kb.as_markup()
 
-    @staticmethod
-    def cancel_booking_keyboard(bookings: list) -> InlineKeyboardMarkup:
-        kb = InlineKeyboardBuilder()
-        for booking in bookings:
-            if booking["status"] == "active":
-                kb.button(
-                    text=f"Отменить бронь #{booking['id']} (trip #{booking['trip_id']})",
-                    callback_data=f"cancel_booking:{booking['id']}",
-                )
-        kb.adjust(1)
-        return kb.as_markup()
-
-    @staticmethod
-    def driver_manage_root_keyboard(open_trips: list) -> InlineKeyboardMarkup:
-        kb = InlineKeyboardBuilder()
-        for t in open_trips:
-            free = int(t["seats_total"]) - int(t["seats_booked"])
-            st = str(t["start_title"]).replace("\n", " ")[:14]
-            en = str(t["end_title"]).replace("\n", " ")[:14]
-            kb.button(
-                text=f"#{t['id']} {st}→{en} ({free})",
-                callback_data=f"manage_trip:{t['id']}",
-            )
-        kb.button(text="Порог рейтинга пассажиров", callback_data="thr_menu")
-        kb.adjust(1)
-        return kb.as_markup()
-
-    @staticmethod
-    def driver_trip_detail_keyboard(trip_id: int, bookings: list) -> InlineKeyboardMarkup:
-        kb = InlineKeyboardBuilder()
-        for b in bookings:
-            bid = int(b["booking_id"])
-            name = str(b["passenger_name"]).replace("\n", " ")[:16]
-            kb.button(text=f"Отклонить: {name}", callback_data=f"reject_bk:{bid}")
-        kb.button(text="Отменить поездку полностью", callback_data=f"cancel_trip:{trip_id}")
-        kb.adjust(1)
-        return kb.as_markup()
-
-    @staticmethod
-    def driver_rating_threshold_keyboard() -> InlineKeyboardMarkup:
-        kb = InlineKeyboardBuilder()
-        kb.button(text="Не ниже 3.0", callback_data="thr_set:3.0")
-        kb.button(text="Не ниже 4.0", callback_data="thr_set:4.0")
-        kb.button(text="Не ниже 4.5", callback_data="thr_set:4.5")
-        kb.button(text="Выключить фильтр", callback_data="thr_set:off")
-        kb.adjust(2)
-        return kb.as_markup()
-
-    @staticmethod
-    def favorite_routes_keyboard(rows: list) -> InlineKeyboardMarkup:
-        kb = InlineKeyboardBuilder()
-        for r in rows:
-            st = str(r["start_title"]).replace("\n", " ")
-            en = str(r["end_title"]).replace("\n", " ")
-            label = f"{st} → {en}"
-            if len(label) > 60:
-                label = label[:57] + "…"
-            kb.button(text=label, callback_data=f"fav_route:{int(r['id'])}")
-        kb.adjust(1)
-        return kb.as_markup()
-
-    @staticmethod
-    def add_favorite_keyboard(trip_id: int) -> InlineKeyboardMarkup:
-        kb = InlineKeyboardBuilder()
-        kb.button(text="Добавить маршрут в избранное", callback_data=f"fav_add:{trip_id}")
-        kb.adjust(1)
-        return kb.as_markup()
-
     def webapp_button_keyboard(self, url: str | None = None) -> InlineKeyboardMarkup:
         """Кнопка «Открыть приложение» с WebAppInfo (переход в Mini App)."""
         webapp_url = url or self._settings.miniapp_url
@@ -247,44 +179,9 @@ class KeyboardFactory:
         )
 
     @staticmethod
-    def geo_suggested_start_stops_keyboard(
-        ranked: list[tuple[object, float]],
-        mode: str,
-    ) -> InlineKeyboardMarkup:
-        """Подсказки посадки по геолокации: callback gxs:{mode}:{point_id}."""
-        kb = InlineKeyboardBuilder()
-        for row, dkm in ranked:
-            rid = int(row["id"])
-            title = str(row["title"]).replace("\n", " ")
-            label = f"{title} (~{dkm:.1f} км)"
-            if len(label) > 64:
-                label = label[:61] + "…"
-            kb.button(text=label, callback_data=f"gxs:{mode}:{rid}")
-        kb.adjust(1)
-        return kb.as_markup()
-
-    @staticmethod
     def back_to_menu_keyboard() -> InlineKeyboardMarkup:
         """Одиночная inline-кнопка «⬅ В главное меню» для экранов без собственных действий."""
         kb = InlineKeyboardBuilder()
         kb.button(text="⬅ В главное меню", callback_data="back:menu")
-        kb.adjust(1)
-        return kb.as_markup()
-
-    @staticmethod
-    def account_menu_keyboard(*, show_become_driver: bool) -> InlineKeyboardMarkup:
-        kb = InlineKeyboardBuilder()
-        kb.button(text="Рейтинг", callback_data="account:rating")
-        kb.button(text="Оценки обо мне", callback_data="account:reviews")
-        kb.button(text="Имя в сервисе", callback_data="account:name")
-        if show_become_driver:
-            kb.button(text="Стать водителем", callback_data="account:upgrade_driver")
-        kb.adjust(1)
-        return kb.as_markup()
-
-    @staticmethod
-    def account_back_keyboard() -> InlineKeyboardMarkup:
-        kb = InlineKeyboardBuilder()
-        kb.button(text="⬅ В аккаунт", callback_data="account:root")
         kb.adjust(1)
         return kb.as_markup()
