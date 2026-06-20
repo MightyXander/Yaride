@@ -1,26 +1,31 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState, type ReactNode } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import { MessageCircle, Shield, Users } from "lucide-react";
 import { BookedSuccessSheet } from "@/components/booked-success-sheet";
 import { YandexRouteCard } from "@/components/yandex-route-card";
 import { BottomCTA, Card, Screen, ScreenHeader, Section } from "@/components/ui-kit";
 import { api, ApiError } from "@/lib/api";
-import { bookingsQueryOptions, queryKeys, tripQueryOptions } from "@/lib/queries";
+import { bookingsQueryOptions, meQueryOptions, queryKeys, tripQueryOptions } from "@/lib/queries";
 import { useBackButton, useTelegram } from "@/lib/telegram";
 
 export const Route = createFileRoute("/trip/$id")({
+  validateSearch: (search: Record<string, unknown>) => ({
+    autoBook: search.autoBook === true,
+  }),
   component: TripDetailScreen,
 });
 
 function TripDetailScreen() {
   const { id } = Route.useParams();
+  const search = Route.useSearch();
   const tripId = Number(id);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { haptic, openExternal } = useTelegram();
   const tripQ = useQuery(tripQueryOptions(tripId));
   const bookingsQ = useQuery(bookingsQueryOptions());
+  const meQ = useQuery(meQueryOptions());
   const [bookError, setBookError] = useState<string | null>(null);
   const [booked, setBooked] = useState(false);
 
@@ -43,6 +48,20 @@ function TripDetailScreen() {
     mutationFn: () => api.addFavorite({ trip_id: tripId }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.favorites }),
   });
+
+  useEffect(() => {
+    if (search.autoBook && tripQ.data && meQ.data?.registered && !bookMut.isPending && !booked && !bookError) {
+      const trip = tripQ.data;
+      const alreadyBooked = (bookingsQ.data?.bookings ?? []).some(
+        (b) => b.tripId === tripId && b.status === "active",
+      );
+      const canBook = trip.seatsFree > 0 && trip.status === "open" && !alreadyBooked;
+      if (canBook) {
+        navigate({ to: "/trip/$id", params: { id }, search: {}, replace: true });
+        bookMut.mutate();
+      }
+    }
+  }, [search.autoBook, tripQ.data, meQ.data, bookMut, bookingsQ.data, booked, bookError, tripId, id, navigate]);
 
   useBackButton(() => navigate({ to: "/search" }));
 
@@ -131,6 +150,11 @@ function TripDetailScreen() {
         onClick={() => {
           haptic("light");
           setBookError(null);
+          const registered = meQ.data?.registered ?? false;
+          if (!registered) {
+            navigate({ to: "/onboarding", search: { pendingTripId: tripId } });
+            return;
+          }
           bookMut.mutate();
         }}
       />
