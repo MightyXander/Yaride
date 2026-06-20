@@ -12,18 +12,8 @@ from aiogram.exceptions import TelegramNetworkError
 
 from app.bootstrap import attach_to_dispatcher, build_container
 from app.bot_support import configure, push_main_menu_after_restart
-from app.handlers.account import router as account_router
-from app.handlers.booking import router as booking_router
-from app.handlers.calendar import router as calendar_router
-from app.handlers.driver_manage import router as driver_manage_router
 from app.handlers.entry import router as entry_router
 from app.handlers.fallback import router as fallback_router
-from app.handlers.favorites import router as favorites_router
-from app.handlers.geo import router as geo_router
-from app.handlers.rating import router as rating_router
-from app.handlers.registration import router as registration_router
-from app.handlers.trip_create import router as trip_create_router
-from app.handlers.trip_search import router as trip_search_router
 from app.middlewares import BanMiddleware
 from app.rating_worker import process_pending_rating_prompts
 
@@ -54,16 +44,6 @@ async def _delete_webhook_with_retry(bot: Bot, *, attempts: int = 6, pause_s: fl
 
 router = Router()
 router.include_router(entry_router)
-router.include_router(registration_router)
-router.include_router(account_router)
-router.include_router(favorites_router)
-router.include_router(trip_search_router)
-router.include_router(trip_create_router)
-router.include_router(booking_router)
-router.include_router(driver_manage_router)
-router.include_router(rating_router)
-router.include_router(geo_router)
-router.include_router(calendar_router)
 router.include_router(fallback_router)
 
 
@@ -98,7 +78,7 @@ async def run() -> None:
             await asyncio.sleep(settings.rating_prompt_initial_delay_s)
             while True:
                 try:
-                    await process_pending_rating_prompts(bot, repo)
+                    await process_pending_rating_prompts(bot, repo, settings)
                 except asyncio.CancelledError:
                     raise
                 except Exception:
