@@ -90,44 +90,8 @@ def trips_keyboard(trips: list) -> InlineKeyboardMarkup:
     return _ctx().keyboards.trips_keyboard(trips)
 
 
-def cancel_booking_keyboard(bookings: list) -> InlineKeyboardMarkup:
-    return _ctx().keyboards.cancel_booking_keyboard(bookings)
-
-
-def driver_manage_root_keyboard(open_trips: list) -> InlineKeyboardMarkup:
-    return _ctx().keyboards.driver_manage_root_keyboard(open_trips)
-
-
-def driver_trip_detail_keyboard(trip_id: int, bookings: list) -> InlineKeyboardMarkup:
-    return _ctx().keyboards.driver_trip_detail_keyboard(trip_id, bookings)
-
-
-def driver_rating_threshold_keyboard() -> InlineKeyboardMarkup:
-    return _ctx().keyboards.driver_rating_threshold_keyboard()
-
-
-def favorite_routes_keyboard(rows: list) -> InlineKeyboardMarkup:
-    return _ctx().keyboards.favorite_routes_keyboard(rows)
-
-
-def add_favorite_keyboard(trip_id: int) -> InlineKeyboardMarkup:
-    return _ctx().keyboards.add_favorite_keyboard(trip_id)
-
-
-def geo_suggested_start_stops_keyboard(ranked: list[tuple[sqlite3.Row, float]], mode: str) -> InlineKeyboardMarkup:
-    return _ctx().keyboards.geo_suggested_start_stops_keyboard(ranked, mode)
-
-
 def location_reply_keyboard() -> ReplyKeyboardMarkup:
     return _ctx().keyboards.location_reply_keyboard()
-
-
-def account_kb_menu(show_become_driver: bool) -> InlineKeyboardMarkup:
-    return _ctx().keyboards.account_menu_keyboard(show_become_driver=show_become_driver)
-
-
-def account_kb_back() -> InlineKeyboardMarkup:
-    return _ctx().keyboards.account_back_keyboard()
 
 
 # ── anchor API: тонкие обёртки над ChatUiService ───────────────────────────
