@@ -16,6 +16,9 @@ import { queryKeys } from "@/lib/queries";
 import { useBackButton, useTelegram } from "@/lib/telegram";
 
 export const Route = createFileRoute("/onboarding")({
+  validateSearch: (search: Record<string, unknown>) => ({
+    pendingTripId: typeof search.pendingTripId === "number" ? search.pendingTripId : undefined,
+  }),
   component: Onboarding,
 });
 
@@ -25,6 +28,7 @@ function Onboarding() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { haptic } = useTelegram();
+  const search = Route.useSearch();
 
   const [step, setStep] = useState<Step>("name");
   const [name, setName] = useState("");
@@ -44,7 +48,16 @@ function Onboarding() {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: queryKeys.me });
       haptic("success");
-      navigate({ to: "/home", replace: true });
+      if (search.pendingTripId) {
+        navigate({
+          to: "/trip/$id",
+          params: { id: String(search.pendingTripId) },
+          search: { autoBook: true },
+          replace: true,
+        });
+      } else {
+        navigate({ to: "/home", replace: true });
+      }
     },
     onError: (e: Error) => {
       haptic("error");

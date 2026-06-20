@@ -15,7 +15,7 @@ function Index() {
     if (isLoading || (isFetching && !data)) return;
     if (isError && !data) return;
     const t = setTimeout(() => {
-      navigate({ to: data?.registered ? "/home" : "/onboarding", replace: true });
+      navigate({ to: "/home", replace: true });
     }, 50);
     return () => clearTimeout(t);
   }, [navigate, data, isLoading, isError, isFetching, failureCount]);

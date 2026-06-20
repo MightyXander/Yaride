@@ -34,7 +34,7 @@ class WebAppApiTests(unittest.TestCase):
         os.close(fd)
         Database(self.path).close()  # bootstrap schema
         self.settings = WebAppSettings(
-            bot_token="test-token",
+            bot_token=None,  # отключаем уведомления в тестах
             db_path=self.path,
             dev_user_id=900001,
         )
@@ -133,11 +133,14 @@ class WebAppApiTests(unittest.TestCase):
         self.assertTrue(any(t["id"] == trip_id for t in by_district["trips"]))
 
     def _approve_driver(self) -> None:
+        self._approve_driver_by_id(self.settings.dev_user_id)
+
+    def _approve_driver_by_id(self, tg_user_id: int) -> None:
         db = Database(self.path)
         with db.transaction() as conn:
             conn.execute(
                 "UPDATE users SET driver_moderation_status = 'approved' WHERE tg_user_id = ?",
-                (self.settings.dev_user_id,),
+                (tg_user_id,),
             )
         db.close()
 
@@ -575,6 +578,79 @@ class WebAppApiTests(unittest.TestCase):
         r = self.client.get(f"/api/trips/{trip_id}")
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json()["status"], "open")
+
+    def test_search_without_registration_booking_requires_profile(self) -> None:
+        """Just-in-time регистрация: поиск без профиля, бронь требует регистрации (#42)."""
+        # Незарегистрированный пользователь может выполнять поиск
+        r = self.client.get("/api/me")
+        self.assertEqual(r.status_code, 200)
+        self.assertFalse(r.json()["registered"])
+
+        # Создаём поездку (второй клиент = водитель)
+        from fastapi.testclient import TestClient
+        driver_settings = WebAppSettings(
+            bot_token=None,
+            db_path=self.path,
+            dev_user_id=900002,
+        )
+        driver_app = create_app(driver_settings)
+        driver_client = TestClient(driver_app)
+        driver_client.__enter__()
+
+        driver_client.post("/api/register", json={
+            "name": "Водитель",
+            "role": "driver",
+            "dl_series_number": "9916АВ123456",
+            "dl_valid_until": "2030-01-01",
+        })
+        self._approve_driver_by_id(900002)
+
+        a, b = self._first_two_stop_ids()
+        r = driver_client.post("/api/trips", json={
+            "start_point_id": a,
+            "end_point_id": b,
+            "trip_date": "2099-06-06",
+            "departure_time": "10:00",
+            "price_rub": 250,
+            "seats_total": 3,
+        })
+        self.assertEqual(r.status_code, 201, r.text)
+        trip_id = r.json()["id"]
+        driver_client.__exit__(None, None, None)
+
+        # Незарегистрированный пользователь ищет поездки — должно работать
+        r = self.client.get("/api/trips", params={"start_point": a, "end_point": b, "date": "2099-06-06"})
+        self.assertEqual(r.status_code, 200, r.text)
+        trips = r.json()["trips"]
+        self.assertEqual(len(trips), 1)
+        self.assertEqual(trips[0]["id"], trip_id)
+
+        # Детали поездки доступны без регистрации
+        r = self.client.get(f"/api/trips/{trip_id}")
+        self.assertEqual(r.status_code, 200, r.text)
+
+        # Попытка бронирования БЕЗ регистрации — должна вернуть ошибку
+        r = self.client.post("/api/bookings", json={"trip_id": trip_id})
+        self.assertEqual(r.status_code, 400, r.text)
+        self.assertIn("не зарегистрирован", r.json()["detail"].lower())
+
+        # Регистрация
+        r = self.client.post("/api/register", json={"name": "Пассажир", "role": "passenger"})
+        self.assertEqual(r.status_code, 200, r.text)
+
+        # Бронирование после регистрации — успех
+        r = self.client.post("/api/bookings", json={"trip_id": trip_id})
+        self.assertEqual(r.status_code, 201, r.text)
+        booking_id = r.json()["id"]
+        self.assertIsInstance(booking_id, int)
+
+        # Проверяем список броней
+        r = self.client.get("/api/bookings")
+        self.assertEqual(r.status_code, 200)
+        bookings = r.json()["bookings"]
+        self.assertEqual(len(bookings), 1)
+        self.assertEqual(bookings[0]["tripId"], trip_id)
+        self.assertEqual(bookings[0]["status"], "active")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,5 @@
 import { createFileRoute, Link, useNavigate, useRouter } from "@tanstack/react-router";
 import {
-  ArrowUpRight,
   Bell,
   Car,
   Clock,
@@ -23,7 +22,6 @@ import { isActiveDriver, isDriverPending, isDriverRejected } from "@/lib/driver-
 import { meQueryOptions } from "@/lib/queries";
 import { useBackButton } from "@/lib/telegram";
 import { preloadRoutePath, scheduleWarmApp } from "@/lib/warm-app";
-import type { Role } from "@/lib/api";
 
 export const Route = createFileRoute("/home")({
   component: Home,
@@ -129,7 +127,14 @@ function Home() {
       </Screen>
     );
   }
-  if (!registered || !profile) return <HomeEmpty onStart={() => navigate({ to: "/onboarding" })} />;
+  if (!registered || !profile) {
+    return (
+      <HomeEmpty
+        onSearch={() => navigate({ to: "/search" })}
+        onRegister={() => navigate({ to: "/onboarding" })}
+      />
+    );
+  }
 
   const visible = TILES.filter((t) => {
     if (t.driverOnly && !activeDriver) return false;
@@ -310,15 +315,22 @@ function HomeSkeleton() {
   );
 }
 
-function HomeEmpty({ onStart }: { onStart: () => void }) {
+function HomeEmpty({ onSearch, onRegister }: { onSearch: () => void; onRegister: () => void }) {
   return (
     <Screen>
       <header className="px-5 pt-6">
         <h1 className="text-[30px] leading-[1.05] font-extrabold tracking-tight">Попутчики по городу — за минуту.</h1>
+        <p className="mt-3 text-[15px] text-muted-foreground">
+          Найдите поездку без регистрации. Профиль потребуется только при брони места.
+        </p>
       </header>
-      <section className="px-5 mt-6">
-        <button onClick={onStart} className="w-full h-14 rounded-2xl brand-gradient text-[#18170f] text-[16px] font-extrabold press">
-          Начать
+      <section className="px-5 mt-6 space-y-3">
+        <button onClick={onSearch} className="w-full h-14 rounded-2xl brand-gradient text-[#18170f] text-[16px] font-extrabold press flex items-center justify-center gap-2">
+          <Search className="size-5" />
+          Найти поездку
+        </button>
+        <button onClick={onRegister} className="w-full h-12 rounded-xl bg-secondary text-secondary-foreground text-[14px] font-semibold press">
+          Зарегистрироваться
         </button>
       </section>
     </Screen>
