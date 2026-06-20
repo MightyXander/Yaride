@@ -462,6 +462,120 @@ class WebAppApiTests(unittest.TestCase):
 
         passenger_client.__exit__(None, None, None)
 
+    def test_user_can_be_driver_and_passenger_simultaneously(self) -> None:
+        """Тест Issue #41: пользователь может одновременно быть водителем (создать поездку) и пассажиром (забронировать чужую поездку)."""
+        # Создаём app с отключёнными уведомлениями (bot_token=None)
+        no_notify_settings = WebAppSettings(bot_token=None, db_path=self.path, dev_user_id=self.settings.dev_user_id)
+        no_notify_app = create_app(no_notify_settings)
+        no_notify_client = TestClient(no_notify_app)
+        no_notify_client.__enter__()
+
+        # Регистрируем первого пользователя как водителя
+        r = no_notify_client.post(
+            "/api/register",
+            json={
+                "name": "Водитель",
+                "role": "driver",
+                "dl_series_number": "9916АВ123456",
+                "dl_valid_until": "2030-01-01",
+            },
+        )
+        self.assertEqual(r.status_code, 200, r.text)
+        self._approve_driver()
+
+        a, b = self._first_two_stop_ids()
+
+        # Создаём поездку как водитель
+        r = no_notify_client.post(
+            "/api/trips",
+            json={
+                "start_point_id": a,
+                "end_point_id": b,
+                "trip_date": "2099-03-03",
+                "departure_time": "10:00",
+                "price_rub": 200,
+                "seats_total": 3,
+            },
+        )
+        self.assertEqual(r.status_code, 201, r.text)
+        own_trip_id = r.json()["id"]
+
+        # Создаём второго водителя (отдельного пользователя)
+        db = Database(self.path)
+        with db.transaction() as conn:
+            conn.execute(
+                """
+                INSERT INTO users(tg_user_id, name, username, role, dl_series_number, dl_valid_until, driver_moderation_status)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (900002, "Второй водитель", "driver2", "driver", "1234АБ567890", "2030-01-01", "approved"),
+            )
+            driver2_id = conn.execute("SELECT id FROM users WHERE tg_user_id = ?", (900002,)).fetchone()["id"]
+            # Создаём поездку второго водителя
+            cur = conn.execute(
+                """
+                INSERT INTO trips(driver_id, start_point_id, end_point_id, trip_date, departure_time, time_slot, price_rub, seats_total, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (driver2_id, a, b, "2099-03-03", "11:00", "2099-03-03 11:00", 250, 2, "open"),
+            )
+            other_trip_id = cur.lastrowid
+        db.close()
+
+        # Первый пользователь (водитель) бронирует место в поездке второго водителя
+        r = no_notify_client.post("/api/bookings", json={"trip_id": other_trip_id})
+        self.assertEqual(r.status_code, 201, r.text)
+        booking_id = r.json()["id"]
+
+        # Проверяем, что бронь создана
+        bookings = no_notify_client.get("/api/bookings").json()["bookings"]
+        self.assertTrue(any(b["id"] == booking_id for b in bookings))
+
+        # Проверяем, что своя поездка всё ещё активна
+        manage = no_notify_client.get("/api/manage/trips").json()["trips"]
+        self.assertTrue(any(t["id"] == own_trip_id and t["status"] == "open" for t in manage))
+
+        no_notify_client.__exit__(None, None, None)
+
+    def test_driver_can_switch_to_passenger_with_active_trips(self) -> None:
+        """Тест Issue #41: водитель может сменить роль на пассажира даже при активных поездках (ограничение снято)."""
+        self._register_driver()
+        a, b = self._first_two_stop_ids()
+
+        # Создаём поездку
+        r = self.client.post(
+            "/api/trips",
+            json={
+                "start_point_id": a,
+                "end_point_id": b,
+                "trip_date": "2099-03-03",
+                "departure_time": "10:00",
+                "price_rub": 200,
+                "seats_total": 3,
+            },
+        )
+        self.assertEqual(r.status_code, 201, r.text)
+        trip_id = r.json()["id"]
+
+        # Пытаемся сменить роль на пассажира (раньше было нельзя при активных поездках)
+        db = Database(self.path)
+        from app.repo import Repo
+        repo = Repo(db)
+        success, msg = repo.users.switch_role(self.settings.dev_user_id, "passenger", "2099-03-03")
+        db.close()
+
+        # ДОЛЖНО ПРОЙТИ (Issue #41 снимает ограничение)
+        self.assertTrue(success, msg)
+
+        # Проверяем, что роль изменилась
+        user = self.client.get("/api/me").json()["user"]
+        self.assertEqual(user["role"], "passenger")
+
+        # Поездка остаётся активной
+        r = self.client.get(f"/api/trips/{trip_id}")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["status"], "open")
+
 
 if __name__ == "__main__":
     unittest.main()
