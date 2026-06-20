@@ -16,6 +16,7 @@ from app.handlers.account import router as account_router
 from app.handlers.booking import router as booking_router
 from app.handlers.calendar import router as calendar_router
 from app.handlers.driver_manage import router as driver_manage_router
+from app.handlers.entry import router as entry_router
 from app.handlers.fallback import router as fallback_router
 from app.handlers.favorites import router as favorites_router
 from app.handlers.geo import router as geo_router
@@ -52,6 +53,7 @@ async def _delete_webhook_with_retry(bot: Bot, *, attempts: int = 6, pause_s: fl
 
 
 router = Router()
+router.include_router(entry_router)
 router.include_router(registration_router)
 router.include_router(account_router)
 router.include_router(favorites_router)

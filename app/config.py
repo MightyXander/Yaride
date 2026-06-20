@@ -19,6 +19,7 @@ class Settings:
     bot_token: str
     db_path: str
     database_url: str | None = None
+    miniapp_url: str | None = None
     seats_choices: tuple[int, ...] = field(default_factory=lambda: (2, 3, 4))
     price_choices: tuple[int, ...] = field(default_factory=lambda: (100, 150, 200))
     time_step_minutes: int = 30
@@ -84,12 +85,14 @@ def load_settings() -> Settings:
     token = os.getenv("BOT_TOKEN", "").strip()
     db_path = os.getenv("DB_PATH", "yaride.db").strip() or "yaride.db"
     database_url = load_database_url()
+    miniapp_url = os.getenv("MINIAPP_URL", "").strip() or None
     if not token:
         raise RuntimeError("BOT_TOKEN is not set. Add it to environment or .env file.")
     return Settings(
         bot_token=token,
         db_path=db_path,
         database_url=database_url,
+        miniapp_url=miniapp_url,
         seats_choices=_env_int_tuple("SEATS_CHOICES", (2, 3, 4)),
         price_choices=_env_int_tuple("PRICE_CHOICES", (100, 150, 200)),
         time_step_minutes=_env_int("TIME_STEP_MINUTES", 30),
