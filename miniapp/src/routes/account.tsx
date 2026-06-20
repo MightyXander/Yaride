@@ -61,7 +61,6 @@ function AccountScreen() {
             <div>
               <div className="text-[18px] font-bold">{profile.name}</div>
               <div className="text-[13px] text-muted-foreground">{tgUser?.username ? `@${tgUser.username}` : "Telegram"}</div>
-              <div className="mt-2 text-[11px] font-bold uppercase">{isDriver ? "Водитель" : "Пассажир"}</div>
             </div>
           </div>
           <div className="mt-5 pt-5 hairline-t flex items-center justify-between">
@@ -77,24 +76,15 @@ function AccountScreen() {
       <Section title="Данные">
         <ListGroup>
           <ListRow icon={<UserRound className="size-4" />} title="Имя" trailing={profile.name} />
-          {isDriver && profile.dlSeriesNumber ? (
+          {profile.dlSeriesNumber ? (
             <ListRow icon={<IdCard className="size-4" />} title="ВУ" trailing={profile.dlSeriesNumber} />
           ) : null}
-          {!isDriver ? (
-            <ListRow
-              icon={<IdCard className="size-4" />}
-              title="Стать водителем"
-              onClick={() => navigate({ to: "/license" })}
-              trailing={<ChevronRight className="size-4" />}
-            />
-          ) : (
-            <ListRow
-              icon={<IdCard className="size-4" />}
-              title="Обновить ВУ"
-              onClick={() => navigate({ to: "/license" })}
-              trailing={<ChevronRight className="size-4" />}
-            />
-          )}
+          <ListRow
+            icon={<IdCard className="size-4" />}
+            title={profile.dlSeriesNumber ? "Обновить ВУ" : "Добавить ВУ"}
+            onClick={() => navigate({ to: "/license" })}
+            trailing={<ChevronRight className="size-4" />}
+          />
         </ListGroup>
       </Section>
 

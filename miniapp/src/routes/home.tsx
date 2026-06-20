@@ -88,16 +88,15 @@ const TILES: {
   hint: string;
   icon: typeof Search;
   art: TileArt;
-  roles: Role[];
   tone?: "brand" | "default";
   driverOnly?: boolean;
 }[] = [
-  { to: "/search", label: "Найти", hint: "поездку рядом", icon: Search, art: ArtSearch, roles: ["driver", "passenger"], tone: "brand" },
-  { to: "/create", label: "Создать", hint: "новый рейс", icon: Plus, art: ArtCreate, roles: ["driver"], tone: "brand", driverOnly: true },
-  { to: "/bookings", label: "Брони", hint: "активные места", icon: Ticket, art: ArtBookings, roles: ["driver", "passenger"] },
-  { to: "/manage", label: "Мои рейсы", hint: "водительская", icon: Settings, art: ArtManage, roles: ["driver"], driverOnly: true },
-  { to: "/favorites", label: "Избранное", hint: "маршруты", icon: Star, art: ArtFavorites, roles: ["driver", "passenger"] },
-  { to: "/history", label: "История", hint: "архив поездок", icon: History, art: ArtHistory, roles: ["driver", "passenger"] },
+  { to: "/search", label: "Найти", hint: "поездку рядом", icon: Search, art: ArtSearch, tone: "brand" },
+  { to: "/create", label: "Создать", hint: "новый рейс", icon: Plus, art: ArtCreate, tone: "brand", driverOnly: true },
+  { to: "/bookings", label: "Брони", hint: "активные места", icon: Ticket, art: ArtBookings },
+  { to: "/manage", label: "Мои рейсы", hint: "водительская", icon: Settings, art: ArtManage, driverOnly: true },
+  { to: "/favorites", label: "Избранное", hint: "маршруты", icon: Star, art: ArtFavorites },
+  { to: "/history", label: "История", hint: "архив поездок", icon: History, art: ArtHistory },
 ];
 
 function Home() {
@@ -133,15 +132,12 @@ function Home() {
   if (!registered || !profile) return <HomeEmpty onStart={() => navigate({ to: "/onboarding" })} />;
 
   const visible = TILES.filter((t) => {
-    if (!t.roles.includes(profile.role)) return false;
-    if (t.driverOnly && profile.role === "driver" && !activeDriver) return false;
+    if (t.driverOnly && !activeDriver) return false;
     return true;
   });
-  const isDriver = profile.role === "driver";
-  const heroCta =
-    isDriver && activeDriver
-      ? { to: "/create", label: "Создать поездку" }
-      : { to: "/search", label: "Найти поездку" };
+  const heroCta = activeDriver
+    ? { to: "/create", label: "Создать поездку" }
+    : { to: "/search", label: "Найти поездку" };
 
   return (
     <Screen>
@@ -174,7 +170,7 @@ function Home() {
             <div className="text-[17px] font-bold leading-tight truncate">{profile.name}</div>
             <div className="text-[12px] text-muted-foreground flex items-center gap-1.5">
               <span className="size-1.5 rounded-full bg-brand" />
-              {isDriver ? "Водитель" : "Пассажир"} · Ярославль
+              {activeDriver ? "Водитель" : "Пассажир"} · Ярославль
             </div>
           </div>
         </Link>
@@ -211,10 +207,10 @@ function Home() {
           className="block relative z-0 overflow-hidden rounded-3xl brand-gradient border border-brand/20 p-5 press-strong"
         >
           <div className="text-[11px] font-bold tracking-[0.18em] uppercase opacity-70">
-            {isDriver && activeDriver ? "Поехали" : "Куда сегодня"}
+            {activeDriver ? "Поехали" : "Куда сегодня"}
           </div>
           <h2 className="mt-2 text-[30px] leading-[1.05] font-extrabold tracking-tight max-w-[80%]">
-            {isDriver && activeDriver ? "Возьмите\nпопутчиков" : "Найдите\nпопутчика"}.
+            {activeDriver ? "Возьмите\nпопутчиков" : "Найдите\nпопутчика"}.
           </h2>
           <div className="mt-5 inline-flex items-center gap-2 h-11 px-4 rounded-full bg-[#18170f] text-white text-[14px] font-semibold">
             <Sparkles className="size-4" />
@@ -237,11 +233,11 @@ function Home() {
           </div>
         </div>
         <div className="surface-elevated p-4">
-          <div className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold">Роль</div>
-          <div className="mt-1 text-[20px] font-extrabold leading-tight">{isDriver ? "Водитель" : "Пассажир"}</div>
+          <div className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold">Поездки</div>
+          <div className="mt-1 text-[20px] font-extrabold leading-tight">{profile.tripsDriverCount + profile.tripsPassengerCount}</div>
           <div className="text-[12px] text-muted-foreground mt-1 flex items-center gap-1">
             <Car className="size-3.5" />
-            {isDriver ? (activeDriver ? "ВУ подтверждено" : "На модерации") : "Меняется в аккаунте"}
+            {activeDriver ? "Водитель одобрен" : "Участник"}
           </div>
         </div>
       </section>

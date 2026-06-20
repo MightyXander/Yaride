@@ -359,7 +359,7 @@ class UserRepository(_BaseRepository):
             )
 
     def switch_role(self, tg_user_id: int, new_role: str, for_date: str) -> tuple[bool, str]:
-        """Сменить роль пользователя. Водитель не может уйти в пассажиры, если на указанную дату есть открытые поездки."""
+        """Сменить роль пользователя. Роль можно менять в любой момент, независимо от активных поездок."""
         if new_role not in ("driver", "passenger"):
             return False, "Недопустимая роль."
 
@@ -379,18 +379,6 @@ class UserRepository(_BaseRepository):
                     "(роль «Водитель» после /start). Смена с пассажира на водителя "
                     "пока доступна только через новую регистрацию водителя.",
                 )
-
-            if user["role"] == "driver":
-                cnt_row = conn.execute(
-                    """
-                    SELECT COUNT(*) AS cnt
-                    FROM trips
-                    WHERE driver_id = ? AND trip_date = ? AND status = 'open'
-                    """,
-                    (user["id"], for_date),
-                ).fetchone()
-                if cnt_row and int(cnt_row["cnt"]) > 0:
-                    return False, "Нельзя сменить роль: на выбранную дату есть активные поездки."
 
             if new_role == "passenger":
                 conn.execute(
@@ -703,20 +691,26 @@ class TripRepository(_BaseRepository):
         seats_total: int,
     ) -> int:
         with self.db.transaction() as conn:
-            driver = conn.execute(
-                "SELECT * FROM users WHERE tg_user_id = ? AND role = 'driver'",
+            user = conn.execute(
+                "SELECT * FROM users WHERE tg_user_id = ?",
                 (tg_driver_id,),
             ).fetchone()
-            if not is_approved_driver(driver):
-                if driver and driver_moderation_status(driver) == DRIVER_MOD_PENDING:
-                    raise ValueError("Заявка водителя на модерации. Создание поездок будет доступно после одобрения.")
-                if driver and driver_moderation_status(driver) == DRIVER_MOD_REJECTED:
-                    raise ValueError("Заявка водителя отклонена. Обратись в поддержку или подай заявку заново.")
-                raise ValueError("Только одобренный водитель может создавать поездку.")
-            if not driver["dl_series_number"]:
+            if not user:
+                raise ValueError("Пользователь не зарегистрирован.")
+
+            # Роль — свойство поездки: создание поездки требует одобренного ВУ, независимо от поля role
+            if not user["dl_series_number"]:
                 raise ValueError(
-                    "В профиле нет данных действующего ВУ. Пройди регистрацию водителя заново через /start."
+                    "Для создания поездки нужны данные водительского удостоверения. Укажи их в профиле."
                 )
+
+            mod_status = driver_moderation_status(user)
+            if mod_status == DRIVER_MOD_PENDING:
+                raise ValueError("Заявка водителя на модерации. Создание поездок будет доступно после одобрения.")
+            if mod_status == DRIVER_MOD_REJECTED:
+                raise ValueError("Заявка водителя отклонена. Обратись в поддержку или подай заявку заново.")
+            if mod_status != DRIVER_MOD_APPROVED:
+                raise ValueError("Создание поездок доступно только после одобрения администратором.")
 
             trip_start = self._trip_start_dt(trip_date, departure_time)
             if trip_start is None:
@@ -732,7 +726,7 @@ class TripRepository(_BaseRepository):
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    driver["id"],
+                    user["id"],
                     start_point_id,
                     end_point_id,
                     trip_date,
