@@ -23,8 +23,10 @@ from typing import Any
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-WSL_CONFIG_PATH = SCRIPT_DIR.parent / "config" / "wsl_isolation.json"
+CONFIG_DIR = SCRIPT_DIR.parent / "config"
+LEGACY_WSL_CONFIG_PATH = CONFIG_DIR / "wsl_isolation.json"
 _wsl_cfg: dict[str, Any] | None = None
+_override_repo: str | None = None  # Global override for --repo flag
 
 
 # ── Logging ──────────────────────────────────────────────────────────────────
@@ -85,11 +87,23 @@ class GhError(Exception):
         self.stderr = stderr
 
 
-def load_wsl_config() -> dict[str, Any] | None:
-    if not WSL_CONFIG_PATH.exists():
+def load_wsl_config(repo: str | None = None) -> dict[str, Any] | None:
+    """Load WSL isolation config for a given repo. Falls back to default (agentic-dev)."""
+    if not repo:
+        repo = "agentic-dev"
+
+    slug = repo.split("/")[-1] if "/" in repo else repo
+    cfg_path = CONFIG_DIR / f"wsl_isolation.{slug}.json"
+
+    # Fallback: try legacy single config
+    if not cfg_path.exists() and LEGACY_WSL_CONFIG_PATH.exists():
+        cfg_path = LEGACY_WSL_CONFIG_PATH
+
+    if not cfg_path.exists():
         return None
+
     try:
-        cfg = json.loads(WSL_CONFIG_PATH.read_text(encoding="utf-8"))
+        cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
         return cfg if cfg.get("enabled") else None
     except (json.JSONDecodeError, OSError):
         return None
@@ -115,14 +129,21 @@ def should_use_wsl_gh() -> bool:
     return _wsl_cfg is not None
 
 
-def run_gh_wsl(cfg: dict[str, Any], args: list[str], *, input_text: str | None = None) -> str:
-    """Run gh inside WSL without shell interpolation (safe for special chars)."""
+def run_gh_wsl(cfg: dict[str, Any], args: list[str], *, input_text: str | None = None, override_repo: str | None = None) -> str:
+    """Run gh inside WSL without shell interpolation (safe for special chars).
+
+    Args:
+        cfg: WSL isolation config
+        args: gh command arguments
+        input_text: stdin for gh
+        override_repo: Explicitly specified repo (OWNER/NAME) to override config-based resolution
+    """
     distro = cfg.get("distro", "Ubuntu-24.04")
     project = cfg["project_path"]
     gh_args = list(args)
 
     if gh_args and gh_args[0] == "api":
-        repo = repo_from_config(cfg)
+        repo = override_repo or repo_from_config(cfg)
         if repo:
             owner, name = repo.split("/", 1)
             gh_args = [
@@ -148,14 +169,40 @@ def run_gh_wsl(cfg: dict[str, Any], args: list[str], *, input_text: str | None =
     return result.stdout.strip()
 
 
-def run_gh(args: list[str], *, input_text: str | None = None) -> str:
-    """Execute `gh` with given arguments and return stdout."""
+def run_gh(args: list[str], *, input_text: str | None = None, override_repo: str | None = None) -> str:
+    """Execute `gh` with given arguments and return stdout.
+
+    Args:
+        args: gh command arguments
+        input_text: stdin for gh
+        override_repo: Explicitly specified repo (OWNER/NAME) to override config-based resolution
+    """
+    global _override_repo
+    repo = override_repo or _override_repo
+
     if should_use_wsl_gh():
         assert _wsl_cfg is not None
-        return run_gh_wsl(_wsl_cfg, args, input_text=input_text)
+        return run_gh_wsl(_wsl_cfg, args, input_text=input_text, override_repo=repo)
 
-    cmd = ["gh", *args]
-    Log.step(f"gh {' '.join(args[:4])}{'...' if len(args) > 4 else ''}")
+    gh_args = list(args)
+
+    # For API calls, substitute {owner}/{repo} templates
+    if gh_args and gh_args[0] == "api" and repo:
+        owner, name = repo.split("/", 1)
+        gh_args = [
+            a.replace("{owner}/{repo}", repo)
+            .replace("{owner}", owner)
+            .replace("{repo}", name)
+            for a in gh_args
+        ]
+
+    # For non-WSL, add -R flag to gh commands if repo is specified
+    cmd = ["gh"]
+    if repo and gh_args and gh_args[0] in ("issue", "pr", "repo"):
+        cmd.extend(["-R", repo])
+    cmd.extend(gh_args)
+
+    Log.step(f"gh {' '.join(gh_args[:4])}{'...' if len(gh_args) > 4 else ''}")
 
     try:
         result = subprocess.run(
@@ -179,8 +226,14 @@ def run_gh(args: list[str], *, input_text: str | None = None) -> str:
     return result.stdout.strip()
 
 
-def get_repo() -> str | None:
-    """Return current repo in owner/name format, or None."""
+def get_repo(override_repo: str | None = None) -> str | None:
+    """Return current repo in owner/name format, or None.
+
+    Args:
+        override_repo: Explicitly specified repo (OWNER/NAME) to override auto-detection.
+    """
+    if override_repo:
+        return override_repo
     try:
         out = run_gh(["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"])
         return out or None
@@ -341,6 +394,7 @@ def _output(data: dict[str, Any], args: argparse.Namespace) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parent = argparse.ArgumentParser(add_help=False)
+    parent.add_argument("--repo", help="Целевой репозиторий в формате OWNER/NAME (переопределяет резолвинг из git/config)")
     parent.add_argument("--pretty", action="store_true", help="Форматированный JSON-вывод")
     parent.add_argument("-q", "--quiet", action="store_true", help="Только JSON, без логов (для скриптов)")
 
@@ -384,14 +438,19 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:
+    global _override_repo
     parser = build_parser()
     args = parser.parse_args()
+
+    # Set global override if --repo is specified
+    if hasattr(args, "repo") and args.repo:
+        _override_repo = args.repo
 
     if not getattr(args, "quiet", False):
         Log.info("gh_manager — GitHub Issue Manager")
         if should_use_wsl_gh() and _wsl_cfg:
             Log.info(f"gh через WSL ({_wsl_cfg['distro']}): {_wsl_cfg['project_path']}")
-        repo = get_repo()
+        repo = get_repo(_override_repo)
         if repo:
             Log.info(f"Репозиторий: {repo}")
         elif args.command != "read":
