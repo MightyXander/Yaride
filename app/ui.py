@@ -264,14 +264,6 @@ class KeyboardFactory:
         return kb.as_markup()
 
     @staticmethod
-    def rating_stars_keyboard(trip_id: int, rated_tg_user_id: int) -> InlineKeyboardMarkup:
-        kb = InlineKeyboardBuilder()
-        for s in range(1, 6):
-            kb.button(text=str(s), callback_data=f"rate:{trip_id}:{rated_tg_user_id}:{s}")
-        kb.adjust(5)
-        return kb.as_markup()
-
-    @staticmethod
     def back_to_menu_keyboard() -> InlineKeyboardMarkup:
         """Одиночная inline-кнопка «⬅ В главное меню» для экранов без собственных действий."""
         kb = InlineKeyboardBuilder()
