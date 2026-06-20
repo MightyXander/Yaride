@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, WebAppInfo
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from app.config import Settings
@@ -236,6 +236,15 @@ class KeyboardFactory:
         kb.button(text="Добавить маршрут в избранное", callback_data=f"fav_add:{trip_id}")
         kb.adjust(1)
         return kb.as_markup()
+
+    def webapp_button_keyboard(self, url: str | None = None) -> InlineKeyboardMarkup:
+        """Кнопка «Открыть приложение» с WebAppInfo (переход в Mini App)."""
+        webapp_url = url or self._settings.miniapp_url
+        if not webapp_url:
+            return InlineKeyboardMarkup(inline_keyboard=[])
+        return InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text="Открыть приложение", web_app=WebAppInfo(url=webapp_url))]]
+        )
 
     @staticmethod
     def geo_suggested_start_stops_keyboard(

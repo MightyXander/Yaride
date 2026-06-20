@@ -334,6 +334,134 @@ class WebAppApiTests(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertIsInstance(r.json()["notifications"], list)
 
+    def _register_passenger(self) -> None:
+        """Регистрация пассажира для тестов бронирования."""
+        r = self.client.post("/api/register", json={"name": "Пассажир", "role": "passenger"})
+        self.assertEqual(r.status_code, 200, r.text)
+
+    def test_booking_create_and_cancel_with_reason(self) -> None:
+        """
+        Gap test #33: POST /api/bookings (создание брони) и cancel с причиной.
+        """
+        self._register_driver()
+        a, b = self._first_two_stop_ids()
+
+        # Создаем поездку
+        r = self.client.post(
+            "/api/trips",
+            json={
+                "start_point_id": a,
+                "end_point_id": b,
+                "trip_date": "2099-05-05",
+                "departure_time": "12:00",
+                "price_rub": 100,
+                "seats_total": 2,
+            },
+        )
+        self.assertEqual(r.status_code, 201, r.text)
+        trip_id = r.json()["id"]
+
+        # Переключаемся на пассажира (создаем нового клиента с другим dev_user_id)
+        # bot_token=None отключает уведомления (BotNotifier.enabled = False)
+        passenger_settings = WebAppSettings(
+            bot_token=None,
+            db_path=self.path,
+            dev_user_id=900002,
+        )
+        passenger_app = create_app(passenger_settings)
+        passenger_client = TestClient(passenger_app)
+        passenger_client.__enter__()
+
+        # Регистрируем пассажира
+        r = passenger_client.post("/api/register", json={"name": "Пассажир", "role": "passenger"})
+        self.assertEqual(r.status_code, 200, r.text)
+
+        # POST /api/bookings — создание брони
+        r = passenger_client.post("/api/bookings", json={"trip_id": trip_id})
+        self.assertEqual(r.status_code, 201, r.text)
+        booking_id = r.json()["id"]
+
+        # Проверяем, что бронь появилась
+        bookings = passenger_client.get("/api/bookings").json()["bookings"]
+        self.assertTrue(any(b["id"] == booking_id for b in bookings))
+
+        # Отмена брони с причиной
+        r = passenger_client.post(
+            f"/api/bookings/{booking_id}/cancel", json={"reason": "Изменились планы"}
+        )
+        self.assertEqual(r.status_code, 200, r.text)
+
+        # Проверяем, что бронь отменена
+        bookings = passenger_client.get("/api/bookings").json()["bookings"]
+        cancelled = next(b for b in bookings if b["id"] == booking_id)
+        self.assertEqual(cancelled["status"], "cancelled_by_passenger")
+        self.assertEqual(cancelled["cancelReason"], "Изменились планы")
+
+        passenger_client.__exit__(None, None, None)
+
+    def test_rating_create_and_pending_list(self) -> None:
+        """
+        Gap test #33: POST /api/ratings (создание оценки) и GET /api/ratings/pending (список ожидающих).
+        """
+        self._register_driver()
+        a, b = self._first_two_stop_ids()
+
+        # Создаем завершённую поездку в прошлом напрямую в БД (обходим валидацию)
+        db = Database(self.path)
+        with db.transaction() as conn:
+            driver_id = conn.execute(
+                "SELECT id FROM users WHERE tg_user_id = ?", (self.settings.dev_user_id,)
+            ).fetchone()["id"]
+            trip_id = conn.execute(
+                """INSERT INTO trips(driver_id, start_point_id, end_point_id, trip_date, departure_time, time_slot, price_rub, seats_total, status)
+                   VALUES (?, ?, ?, '2020-06-06', '14:00', '2020-06-06 14:00', 120, 2, 'completed')""",
+                (driver_id, a, b),
+            ).lastrowid
+        db.close()
+
+        # Пассажир бронирует и завершает поездку
+        # bot_token=None отключает уведомления
+        passenger_settings = WebAppSettings(
+            bot_token=None,
+            db_path=self.path,
+            dev_user_id=900003,
+        )
+        passenger_app = create_app(passenger_settings)
+        passenger_client = TestClient(passenger_app)
+        passenger_client.__enter__()
+
+        r = passenger_client.post("/api/register", json={"name": "Пассажир2", "role": "passenger"})
+        self.assertEqual(r.status_code, 200, r.text)
+
+        # Создаем бронь напрямую в БД
+        db = Database(self.path)
+        with db.transaction() as conn:
+            passenger_id = conn.execute(
+                "SELECT id FROM users WHERE tg_user_id = ?", (900003,)
+            ).fetchone()["id"]
+            conn.execute(
+                "INSERT INTO bookings(trip_id, passenger_id, status) VALUES (?, ?, 'active')",
+                (trip_id, passenger_id),
+            )
+        db.close()
+
+        # Проверяем GET /api/ratings/pending
+        r = passenger_client.get("/api/ratings/pending")
+        self.assertEqual(r.status_code, 200)
+        pending = r.json()["pending"]
+        self.assertIsInstance(pending, list)
+
+        # POST /api/ratings — создание оценки
+        driver_tg_id = self.settings.dev_user_id
+        r = passenger_client.post(
+            "/api/ratings",
+            json={"trip_id": trip_id, "rated_tg_user_id": driver_tg_id, "stars": 5, "review_text": "Отличная поездка!"},
+        )
+        self.assertEqual(r.status_code, 201, r.text)
+        self.assertTrue(r.json()["ok"])
+
+        passenger_client.__exit__(None, None, None)
+
 
 if __name__ == "__main__":
     unittest.main()
