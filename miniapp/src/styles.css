@@ -113,6 +113,7 @@
   --shadow-brand: 0 8px 24px -14px color-mix(in oklab, var(--brand) 40%, transparent);
   --shadow-brand-soft: 0 2px 10px -8px color-mix(in oklab, var(--brand) 22%, transparent);
   --shadow-elevated: 0 10px 30px -18px rgba(0,0,0,0.55);
+  --shadow-hero: 0 14px 40px -16px color-mix(in oklab, var(--brand) 55%, transparent);
 }
 
 .dark {
@@ -152,6 +153,7 @@
   --warning: #ffd24a;
   --warning-foreground: #18170f;
   --shadow-elevated: 0 14px 40px -18px rgba(0,0,0,0.7);
+  --shadow-hero: 0 12px 32px -18px color-mix(in oklab, var(--brand) 28%, transparent);
 }
 
 @layer base {
@@ -211,6 +213,10 @@
 
 @utility brand-glow-soft {
   box-shadow: var(--shadow-brand-soft);
+}
+
+@utility hero-glow {
+  box-shadow: var(--shadow-hero);
 }
 
 @utility hairline-t {
