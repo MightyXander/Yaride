@@ -54,6 +54,16 @@ function FlyTo({ coords, zoom }: { coords: [number, number]; zoom: number }) {
   return null;
 }
 
+function AttributionFix() {
+  const map = useMap();
+  useEffect(() => {
+    if (map.attributionControl) {
+      map.attributionControl.setPrefix(false);
+    }
+  }, [map]);
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Основной компонент
 // ---------------------------------------------------------------------------
@@ -171,6 +181,7 @@ export function StopMapPicker({
             style={{ width: "100%", height: "100%" }}
           >
             <TileLayer key={tileUrl} url={tileUrl} attribution={TILE_ATTR} maxZoom={18} />
+            <AttributionFix />
             <ZoomWatcher onChange={setZoom} />
             {flyTarget ? <FlyTo key={flyKeyRef.current} coords={flyTarget.coords} zoom={flyTarget.zoom} /> : null}
             {showMarkers && stops.map((s) => (
