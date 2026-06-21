@@ -123,3 +123,25 @@ class BotNotifier:
             body += f"\n«{review}»"
         body += f"\nПоездка #{trip_id}"
         await self.send(rated_tg_user_id, body)
+
+    async def route_alert_matched(
+        self,
+        *,
+        passenger_tg_user_id: int,
+        trip_id: int,
+        from_title: str,
+        to_title: str,
+        trip_date: str,
+        departure_time: str,
+        miniapp_url: str | None = None,
+    ) -> None:
+        """Уведомление пассажиру о появлении поездки по подписке на маршрут."""
+        route = f"{from_title} → {to_title}"
+        when = format_trip_when(trip_date, departure_time, None)
+        body = f"Появилась поездка по твоему запросу!\n{route} · {when}\nПоездка #{trip_id}"
+
+        if miniapp_url:
+            deep_link = f"{miniapp_url}#/trip/{trip_id}"
+            body += f"\n\nОткрыть: {deep_link}"
+
+        await self.send(passenger_tg_user_id, body)

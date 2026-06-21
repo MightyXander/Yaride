@@ -328,6 +328,13 @@ export const api = {
   submitRating: (body: { trip_id: number; rated_tg_user_id: number; stars: number; review_text?: string }) =>
     request<{ ok: boolean }>("/api/ratings", { method: "POST", body: JSON.stringify(body) }),
 
+  createAlert: (body: {
+    from_point_id: number;
+    to_point_id: number;
+    desired_date: string;
+    desired_time?: string;
+  }) => request<{ id: number }>("/api/alerts", { method: "POST", body: JSON.stringify(body) }),
+
   templates: () => request<{ templates: ApiTemplate[] }>("/api/templates"),
   createTemplate: (body: {
     start_point_id: number;

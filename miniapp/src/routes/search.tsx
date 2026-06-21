@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CalendarDays, MapPin, Search as SearchIcon } from "lucide-react";
+import { Bell, CalendarDays, MapPin, Search as SearchIcon } from "lucide-react";
 import {
   EmptyState,
   Screen,
@@ -444,7 +444,24 @@ function Results({
   onSwitchToDistrict: (startDistrict: string, endDistrict: string) => void;
 }) {
   const navigate = useNavigate();
-  const { haptic } = useTelegram();
+  const { haptic, showAlert } = useTelegram();
+
+  const createAlertMutation = useMutation({
+    mutationFn: () =>
+      api.createAlert({
+        from_point_id: fromPointId,
+        to_point_id: toPointId,
+        desired_date: date,
+      }),
+    onSuccess: () => {
+      showAlert("Подписка создана! Когда появится поездка, мы сообщим тебе в боте.");
+      haptic("success");
+    },
+    onError: (err) => {
+      showAlert(`Ошибка: ${err instanceof Error ? err.message : String(err)}`);
+      haptic("error");
+    },
+  });
   const exactParams = { start_point: fromPointId, end_point: toPointId, date };
   const districtParams =
     fromDistrict && toDistrict
@@ -508,11 +525,20 @@ function Results({
           }
           action={
             <div className="flex flex-col gap-2 w-full max-w-xs">
+              <button
+                type="button"
+                onClick={() => createAlertMutation.mutate()}
+                disabled={createAlertMutation.isPending}
+                className="h-12 rounded-xl brand-gradient font-bold press inline-flex items-center justify-center gap-2"
+              >
+                <Bell className="size-4" />
+                {createAlertMutation.isPending ? "Создаём..." : "Сообщить, когда появится"}
+              </button>
               {sd && ed ? (
                 <button
                   type="button"
                   onClick={() => onSwitchToDistrict(sd, ed)}
-                  className="h-12 rounded-xl brand-gradient font-bold press inline-flex items-center justify-center gap-2"
+                  className="h-12 rounded-xl bg-secondary text-secondary-foreground font-semibold press inline-flex items-center justify-center gap-2"
                 >
                   <MapPin className="size-4" />
                   Искать: {sd} → {ed}
@@ -542,14 +568,25 @@ function Results({
           title="Поездок на эту дату нет"
           description="Попробуйте выбрать другую дату для этого маршрута."
           action={
-            <button
-              type="button"
-              onClick={onChangeDate}
-              className="h-12 px-6 rounded-xl bg-secondary text-secondary-foreground font-semibold press inline-flex items-center justify-center gap-2"
-            >
-              <CalendarDays className="size-4" />
-              Выбрать другую дату
-            </button>
+            <div className="flex flex-col gap-2 w-full max-w-xs">
+              <button
+                type="button"
+                onClick={() => createAlertMutation.mutate()}
+                disabled={createAlertMutation.isPending}
+                className="h-12 rounded-xl brand-gradient font-bold press inline-flex items-center justify-center gap-2"
+              >
+                <Bell className="size-4" />
+                {createAlertMutation.isPending ? "Создаём..." : "Сообщить, когда появится"}
+              </button>
+              <button
+                type="button"
+                onClick={onChangeDate}
+                className="h-12 px-6 rounded-xl bg-secondary text-secondary-foreground font-semibold press inline-flex items-center justify-center gap-2"
+              >
+                <CalendarDays className="size-4" />
+                Выбрать другую дату
+              </button>
+            </div>
           }
         />
       </>

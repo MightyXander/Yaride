@@ -13,6 +13,7 @@ from app.repo import Repo
 from webapp_api.bot_notify import BotNotifier
 from webapp_api.config import WebAppSettings, load_webapp_settings
 from webapp_api.routes import (
+    alerts,
     bookings,
     catalog,
     favorites,
@@ -71,4 +72,5 @@ def create_app(settings: WebAppSettings | None = None) -> FastAPI:
     app.include_router(history.router)
     app.include_router(favorites.router)
     app.include_router(templates.router)
+    app.include_router(alerts.router)
     return app

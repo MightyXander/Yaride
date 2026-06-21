@@ -2137,6 +2137,83 @@ class TripTemplateRepository(_BaseRepository):
         return trip_id
 
 
+class RouteAlertRepository(_BaseRepository):
+    """Подписки на маршрут: пассажир хочет узнать, когда появится поездка по направлению."""
+
+    def create_alert(
+        self,
+        tg_user_id: int,
+        from_point_id: int,
+        to_point_id: int,
+        desired_date: str,
+        desired_time: str | None = None,
+    ) -> int:
+        """Создать подписку на маршрут при пустом поиске."""
+        with self.db.transaction() as conn:
+            passenger_id = self._get_internal_user_id(conn, tg_user_id)
+            from app.database import insert_returning_id
+
+            alert_id = insert_returning_id(
+                self.db,
+                conn,
+                """
+                INSERT INTO route_alerts (passenger_id, from_point_id, to_point_id, desired_date, desired_time, status)
+                VALUES (?, ?, ?, ?, ?, 'active')
+                """,
+                (passenger_id, from_point_id, to_point_id, desired_date, desired_time),
+            )
+            return alert_id
+
+    def find_matching_alerts(
+        self,
+        trip_start_point_id: int,
+        trip_end_point_id: int,
+        trip_date: str,
+    ) -> list[sqlite3.Row]:
+        """Найти активные подписки, которые соответствуют новой поездке."""
+        with self.db.transaction() as conn:
+            return conn.execute(
+                """
+                SELECT ra.id, ra.passenger_id, ra.desired_time, u.tg_user_id AS passenger_tg_user_id,
+                       sp.title AS from_title, ep.title AS to_title
+                FROM route_alerts ra
+                JOIN users u ON u.id = ra.passenger_id
+                JOIN route_points sp ON sp.id = ra.from_point_id
+                JOIN route_points ep ON ep.id = ra.to_point_id
+                WHERE ra.status = 'active'
+                  AND ra.from_point_id = ?
+                  AND ra.to_point_id = ?
+                  AND ra.desired_date = ?
+                """,
+                (trip_start_point_id, trip_end_point_id, trip_date),
+            ).fetchall()
+
+    def mark_as_notified(self, alert_id: int) -> None:
+        """Отметить подписку как обработанную после отправки уведомления."""
+        with self.db.transaction() as conn:
+            conn.execute(
+                "UPDATE route_alerts SET status = 'notified' WHERE id = ?",
+                (alert_id,),
+            )
+
+    def list_passenger_alerts(self, tg_user_id: int, status: str = "active") -> list[sqlite3.Row]:
+        """Список подписок пассажира (для управления в профиле)."""
+        with self.db.transaction() as conn:
+            passenger_id = self._get_internal_user_id(conn, tg_user_id)
+            return conn.execute(
+                """
+                SELECT ra.id, ra.desired_date, ra.desired_time, ra.status, ra.created_at,
+                       sp.title AS from_title, ep.title AS to_title
+                FROM route_alerts ra
+                JOIN route_points sp ON sp.id = ra.from_point_id
+                JOIN route_points ep ON ep.id = ra.to_point_id
+                WHERE ra.passenger_id = ? AND ra.status = ?
+                ORDER BY ra.created_at DESC
+                """,
+                (passenger_id, status),
+            ).fetchall()
+
+
 class Repo:
     """Тонкий контейнер под-репозиториев; вызовы идут через repo.users, repo.routes, …"""
 
@@ -2150,6 +2227,7 @@ class Repo:
         self.ratings = RatingRepository(db)
         self.admin = AdminRepository(db)
         self.templates = TripTemplateRepository(db)
+        self.alerts = RouteAlertRepository(db)
 
     @staticmethod
     def default_date() -> str:
