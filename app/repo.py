@@ -790,7 +790,10 @@ class TripRepository(_BaseRepository):
                     ep.longitude AS end_lng,
                     u.name AS driver_name,
                     u.username AS driver_username,
-                    u.rating_avg AS driver_rating
+                    u.rating_avg AS driver_rating,
+                    u.rating_count AS driver_rating_count,
+                    u.trips_driver_count AS driver_trips_count,
+                    u.created_at AS driver_created_at
                 FROM trips t
                 JOIN route_points sp ON sp.id = t.start_point_id
                 JOIN route_points ep ON ep.id = t.end_point_id
@@ -823,7 +826,10 @@ class TripRepository(_BaseRepository):
                 sp.title AS start_title,
                 ep.title AS end_title,
                 u.name AS driver_name,
-                u.rating_avg AS driver_rating
+                u.rating_avg AS driver_rating,
+                u.rating_count AS driver_rating_count,
+                u.trips_driver_count AS driver_trips_count,
+                u.created_at AS driver_created_at
             FROM trips t
             JOIN route_points sp ON sp.id = t.start_point_id
             JOIN route_points ep ON ep.id = t.end_point_id

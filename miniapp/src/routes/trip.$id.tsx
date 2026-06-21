@@ -105,9 +105,20 @@ function TripDetailScreen() {
                 <div className="text-[17px] font-bold truncate">{trip.driverName}</div>
                 <div className="text-[12px] text-muted-foreground flex items-center gap-1.5">
                   <Shield className="size-3.5 text-success" />
-                  ★ {trip.driverRating.toFixed(1)}
-                  {trip.driverTripsCount ? ` · ${trip.driverTripsCount} поездок` : ""}
+                  {trip.driverRatingCount === 0 ? (
+                    <span>Новый водитель</span>
+                  ) : (
+                    <span>
+                      ★ {trip.driverRating.toFixed(1)}
+                      {trip.driverTripsCount ? ` · ${trip.driverTripsCount} поездок` : ""}
+                    </span>
+                  )}
                 </div>
+                {trip.driverCreatedAt && trip.driverRatingCount !== 0 ? (
+                  <div className="text-[11px] text-muted-foreground mt-1">
+                    На платформе с {new Date(trip.driverCreatedAt).toLocaleDateString("ru", { month: "short", year: "numeric" })}
+                  </div>
+                ) : null}
               </div>
             </div>
             {alreadyBooked && trip.driverUsername ? (

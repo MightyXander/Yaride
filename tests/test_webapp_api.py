@@ -652,6 +652,71 @@ class WebAppApiTests(unittest.TestCase):
         self.assertEqual(bookings[0]["tripId"], trip_id)
         self.assertEqual(bookings[0]["status"], "active")
 
+    def test_trip_card_has_driver_profile_fields(self) -> None:
+        """Issue #21: профиль водителя виден до брони (рейтинг, число поездок, дата регистрации)."""
+        self._register_driver()
+        a, b = self._first_two_stop_ids()
+        r = self.client.post(
+            "/api/trips",
+            json={
+                "start_point_id": a,
+                "end_point_id": b,
+                "trip_date": "2099-03-03",
+                "departure_time": "10:00",
+                "price_rub": 200,
+                "seats_total": 4,
+            },
+        )
+        self.assertEqual(r.status_code, 201, r.text)
+        trip_id = r.json()["id"]
+
+        # Проверка в списке поездок (search)
+        found = self.client.get(f"/api/trips?start_point={a}&end_point={b}").json()["trips"]
+        trip = next(t for t in found if t["id"] == trip_id)
+        self.assertIn("driverName", trip)
+        self.assertIn("driverRating", trip)
+        self.assertIn("driverRatingCount", trip)
+        self.assertIn("driverTripsCount", trip)
+        self.assertIn("driverCreatedAt", trip)
+        self.assertIsInstance(trip["driverRating"], (int, float))
+        self.assertIsInstance(trip["driverRatingCount"], int)
+        self.assertIsInstance(trip["driverTripsCount"], int)
+        self.assertIsNotNone(trip["driverCreatedAt"])
+
+        # Проверка на детальной странице
+        details = self.client.get(f"/api/trips/{trip_id}").json()
+        self.assertIn("driverName", details)
+        self.assertIn("driverRating", details)
+        self.assertIn("driverRatingCount", details)
+        self.assertIn("driverTripsCount", details)
+        self.assertIn("driverCreatedAt", details)
+
+    def test_trip_card_shows_new_driver_without_rating(self) -> None:
+        """Issue #21: новичок без рейтинга не отсекается и показывается как 'новый водитель'."""
+        self._register_driver()
+        a, b = self._first_two_stop_ids()
+        r = self.client.post(
+            "/api/trips",
+            json={
+                "start_point_id": a,
+                "end_point_id": b,
+                "trip_date": "2099-04-04",
+                "departure_time": "11:00",
+                "price_rub": 180,
+                "seats_total": 3,
+            },
+        )
+        self.assertEqual(r.status_code, 201, r.text)
+        trip_id = r.json()["id"]
+
+        details = self.client.get(f"/api/trips/{trip_id}").json()
+        # Новый водитель: rating_avg = 0.0, rating_count = 0
+        self.assertEqual(details["driverRating"], 0.0)
+        self.assertEqual(details["driverRatingCount"], 0)
+        # Но поездка показывается в результатах поиска
+        found = self.client.get(f"/api/trips?start_point={a}&end_point={b}").json()["trips"]
+        self.assertTrue(any(t["id"] == trip_id for t in found))
+
 
 if __name__ == "__main__":
     unittest.main()

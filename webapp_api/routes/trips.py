@@ -113,6 +113,8 @@ def trip_details(trip_id: int, repo: Repo = Depends(get_repo)) -> dict:
         data["carPlate"] = driver["car_plate"] if "car_plate" in keys else None
         data["driverTripsCount"] = int(driver["trips_driver_count"]) if "trips_driver_count" in keys else None
         data["driverUsername"] = driver["username"] if "username" in keys and driver["username"] else None
+        data["driverRatingCount"] = int(driver["rating_count"]) if "rating_count" in keys else None
+        data["driverCreatedAt"] = driver["created_at"] if "created_at" in keys else None
     return data
 
 
