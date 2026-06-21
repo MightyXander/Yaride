@@ -30,6 +30,13 @@ import { districtsQueryOptions, queryKeys } from "@/lib/queries";
 import { saveDistrictRoute } from "@/lib/saved-district-route";
 import { preloadMapForRoutePick } from "@/lib/preload-map";
 import { useBackButton, useTelegram } from "@/lib/telegram";
+import {
+  clearSearchWizardDraft,
+  defaultSearchWizardDraft,
+  loadSearchWizardDraft,
+  saveSearchWizardDraft,
+  type SearchWizardDraft,
+} from "@/lib/search-wizard";
 
 export type SearchRouteSearch = ReturnType<typeof parseSearchRouteSearch>;
 
@@ -109,12 +116,72 @@ function SearchScreen() {
   const queryClient = useQueryClient();
   const { haptic } = useTelegram();
   const mapSearch = Route.useSearch();
-  const [phase, setPhase] = useState<Phase>({ kind: "from-district" });
+
+  const initialPhase = (): Phase => {
+    const draft = loadSearchWizardDraft();
+    if (!draft || draft.phaseKind === "from-district") return { kind: "from-district" };
+
+    switch (draft.phaseKind) {
+      case "from-stop":
+        return draft.pickDistrict ? { kind: "from-stop", district: draft.pickDistrict } : { kind: "from-district" };
+      case "from-geo":
+        return { kind: "from-geo" };
+      case "to-district":
+        return draft.fromPointId && draft.fromLabel
+          ? { kind: "to-district", fromPointId: draft.fromPointId, fromLabel: draft.fromLabel, fromDistrict: draft.fromDistrict || undefined }
+          : { kind: "from-district" };
+      case "to-stop":
+        return draft.fromPointId && draft.fromLabel && draft.pickDistrict
+          ? { kind: "to-stop", fromPointId: draft.fromPointId, fromLabel: draft.fromLabel, fromDistrict: draft.fromDistrict || undefined, district: draft.pickDistrict }
+          : { kind: "from-district" };
+      case "date":
+        return draft.fromPointId && draft.toPointId && draft.fromLabel && draft.toLabel
+          ? { kind: "date", fromPointId: draft.fromPointId, toPointId: draft.toPointId, fromLabel: draft.fromLabel, toLabel: draft.toLabel, fromDistrict: draft.fromDistrict || undefined, toDistrict: draft.toDistrict || undefined }
+          : { kind: "from-district" };
+      case "results":
+        return draft.fromPointId && draft.toPointId && draft.fromLabel && draft.toLabel && draft.date
+          ? { kind: "results", mode: draft.resultsMode, fromPointId: draft.fromPointId, toPointId: draft.toPointId, fromLabel: draft.fromLabel, toLabel: draft.toLabel, fromDistrict: draft.fromDistrict || undefined, toDistrict: draft.toDistrict || undefined, date: draft.date }
+          : { kind: "from-district" };
+      default:
+        return { kind: "from-district" };
+    }
+  };
+
+  const [phase, setPhase] = useState<Phase>(initialPhase());
   const routePrefillHandled = useRef(false);
+
+  const initialFilters = (): SearchTripFilters => {
+    const draft = loadSearchWizardDraft();
+    if (!draft) return EMPTY_SEARCH_FILTERS;
+    return {
+      departureTime: draft.departureTimeFilter,
+      minSeatsFree: draft.minSeatsFreeFilter,
+    };
+  };
+
+  const [filters, setFilters] = useState<SearchTripFilters>(initialFilters());
 
   useEffect(() => {
     preloadMapForRoutePick(router, queryClient);
   }, [router, queryClient]);
+
+  useEffect(() => {
+    const draft: SearchWizardDraft = {
+      phaseKind: phase.kind,
+      fromPointId: "fromPointId" in phase ? phase.fromPointId : null,
+      fromLabel: "fromLabel" in phase ? phase.fromLabel : "",
+      toPointId: "toPointId" in phase ? phase.toPointId : null,
+      toLabel: "toLabel" in phase ? phase.toLabel : "",
+      fromDistrict: "fromDistrict" in phase ? (phase.fromDistrict ?? "") : "",
+      toDistrict: "toDistrict" in phase ? (phase.toDistrict ?? "") : "",
+      pickDistrict: "district" in phase ? phase.district : "",
+      date: "date" in phase ? phase.date : "",
+      resultsMode: "mode" in phase ? phase.mode : "exact",
+      departureTimeFilter: filters.departureTime,
+      minSeatsFreeFilter: filters.minSeatsFree,
+    };
+    saveSearchWizardDraft(draft);
+  }, [phase, filters]);
 
   useEffect(() => {
     if (routePrefillHandled.current) return;
@@ -175,8 +242,10 @@ function SearchScreen() {
 
   useBackButton(() => {
     haptic("light");
-    if (phase.kind === "from-district") navigate({ to: "/home" });
-    else if (phase.kind === "from-stop") setPhase({ kind: "from-district" });
+    if (phase.kind === "from-district") {
+      clearSearchWizardDraft();
+      navigate({ to: "/home" });
+    } else if (phase.kind === "from-stop") setPhase({ kind: "from-district" });
     else if (phase.kind === "from-geo") setPhase({ kind: "from-district" });
     else if (phase.kind === "to-district") setPhase({ kind: "from-district" });
     else if (phase.kind === "to-stop")
@@ -318,6 +387,8 @@ function SearchScreen() {
           fromDistrict={phase.fromDistrict}
           toDistrict={phase.toDistrict}
           date={phase.date}
+          filters={filters}
+          onFiltersChange={setFilters}
           onChangeDate={() =>
             setPhase({
               kind: "date",
@@ -354,6 +425,8 @@ function Results({
   fromDistrict,
   toDistrict,
   date,
+  filters,
+  onFiltersChange,
   onChangeDate,
   onSwitchToDistrict,
 }: {
@@ -365,6 +438,8 @@ function Results({
   fromDistrict?: string;
   toDistrict?: string;
   date: string;
+  filters: SearchTripFilters;
+  onFiltersChange: (filters: SearchTripFilters) => void;
   onChangeDate: () => void;
   onSwitchToDistrict: (startDistrict: string, endDistrict: string) => void;
 }) {
@@ -395,7 +470,6 @@ function Results({
     [tripsQ.data?.trips],
   );
 
-  const [filters, setFilters] = useState<SearchTripFilters>(EMPTY_SEARCH_FILTERS);
   const [filterOpen, setFilterOpen] = useState(false);
 
   const filteredTrips = useMemo(() => applyTripFilters(allTrips, filters), [allTrips, filters]);
@@ -497,7 +571,7 @@ function Results({
           action={
             <button
               type="button"
-              onClick={() => setFilters(EMPTY_SEARCH_FILTERS)}
+              onClick={() => onFiltersChange(EMPTY_SEARCH_FILTERS)}
               className="h-12 px-6 rounded-xl bg-secondary text-secondary-foreground font-semibold press"
             >
               Сбросить фильтр
@@ -507,7 +581,7 @@ function Results({
         {filterOpen ? (
           <SearchFilterSheet
             filters={filters}
-            onApply={setFilters}
+            onApply={onFiltersChange}
             onClose={() => setFilterOpen(false)}
           />
         ) : null}
@@ -550,7 +624,7 @@ function Results({
         </div>
       </Section>
       {filterOpen ? (
-        <SearchFilterSheet filters={filters} onApply={setFilters} onClose={() => setFilterOpen(false)} />
+        <SearchFilterSheet filters={filters} onApply={onFiltersChange} onClose={() => setFilterOpen(false)} />
       ) : null}
     </>
   );
