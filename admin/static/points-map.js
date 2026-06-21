@@ -64,6 +64,9 @@
       maxZoom: 19,
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>',
     }).addTo(map);
+    if (map.attributionControl) {
+      map.attributionControl.setPrefix(false);
+    }
 
     const marker = L.marker([lat, lng], {
       draggable: true,
@@ -112,6 +115,9 @@
       maxZoom: 19,
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>',
     }).addTo(map);
+    if (map.attributionControl) {
+      map.attributionControl.setPrefix(false);
+    }
 
     const bounds = [];
 
