@@ -241,8 +241,8 @@ function Home() {
           <div className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold">Поездки</div>
           <div className="mt-1 text-[20px] font-extrabold leading-tight">{profile.tripsDriverCount + profile.tripsPassengerCount}</div>
           <div className="text-[12px] text-muted-foreground mt-1 flex items-center gap-1">
-            <Car className="size-3.5" />
-            {activeDriver ? "Водитель одобрен" : "Участник"}
+            {activeDriver ? <Car className="size-3.5" /> : <UserRound className="size-3.5" />}
+            {activeDriver ? "ВУ подтверждено" : "стать водителем можно в профиле"}
           </div>
         </div>
       </section>
