@@ -4,7 +4,7 @@ import tempfile
 from pathlib import Path
 from unittest import TestCase
 
-from app.db import SCHEMA_VERSION, Database
+from app.db import CURRENT_SCHEMA_VERSION, SCHEMA_VERSION, Database
 
 
 class SchemaVersionTests(TestCase):

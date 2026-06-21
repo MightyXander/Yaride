@@ -25,7 +25,8 @@ from app.sql_dialect import SqlDialect
 # v9 — маршруты-шаблоны водителя (trip_templates): быстрая повторная публикация + задел под расписание.
 # v10 — модерация водителей в админке: driver_moderation_status (pending/approved/rejected).
 # v12 — промежуточные посадки: trip_stops, trips.allow_intermediate_pickup/route_polyline, bookings.boarding_stop_id.
-CURRENT_SCHEMA_VERSION = 13
+# v14 — подписки на маршрут: таблица route_alerts для уведомлений при пустом поиске.
+CURRENT_SCHEMA_VERSION = 14
 SCHEMA_VERSION = CURRENT_SCHEMA_VERSION
 
 
@@ -190,6 +191,9 @@ class Database:
         if from_v == 12 and to_v == 13:
             self._migrate_v12_to_v13(conn)
             return
+        if from_v == 13 and to_v == 14:
+            self._migrate_v13_to_v14(conn)
+            return
         raise RuntimeError(f"No migration defined from v{from_v} to v{to_v}")
 
     def _migrate_v1_to_v2(self, conn: sqlite3.Connection) -> None:
@@ -245,6 +249,10 @@ class Database:
         """Продуктовая аналитика: таблица событий воронки (поиск/бронь/отмена)."""
         self._ensure_analytics_events_table(conn)
 
+    def _migrate_v13_to_v14(self, conn: sqlite3.Connection) -> None:
+        """Подписки на маршрут: уведомления при появлении поездок на пустых результатах поиска."""
+        self._ensure_route_alerts_table(conn)
+
     def _ensure_analytics_events_table(self, conn: sqlite3.Connection) -> None:
         conn.executescript(
             """
@@ -258,6 +266,30 @@ class Database:
 
             CREATE INDEX IF NOT EXISTS idx_analytics_events_event_created
                 ON analytics_events(event, created_at);
+            """
+        )
+
+    def _ensure_route_alerts_table(self, conn: sqlite3.Connection) -> None:
+        """Подписки на маршрут: пассажир хочет узнать, когда появится поездка по указанному направлению."""
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS route_alerts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                passenger_id INTEGER NOT NULL,
+                from_point_id INTEGER NOT NULL,
+                to_point_id INTEGER NOT NULL,
+                desired_date TEXT NOT NULL,
+                desired_time TEXT,
+                status TEXT CHECK(status IN ('active', 'notified', 'cancelled')) NOT NULL DEFAULT 'active',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(passenger_id) REFERENCES users(id),
+                FOREIGN KEY(from_point_id) REFERENCES route_points(id),
+                FOREIGN KEY(to_point_id) REFERENCES route_points(id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_route_alerts_passenger ON route_alerts(passenger_id);
+            CREATE INDEX IF NOT EXISTS idx_route_alerts_route ON route_alerts(from_point_id, to_point_id, desired_date);
+            CREATE INDEX IF NOT EXISTS idx_route_alerts_status ON route_alerts(status);
             """
         )
 
@@ -509,6 +541,7 @@ class Database:
         self._ensure_users_driver_moderation(conn)
         self._ensure_intermediate_pickup(conn)
         self._ensure_analytics_events_table(conn)
+        self._ensure_route_alerts_table(conn)
 
     def _ensure_users_driver_moderation(self, conn: sqlite3.Connection) -> None:
         cols = self._sqlite_table_columns(conn, "users")

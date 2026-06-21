@@ -717,6 +717,63 @@ class WebAppApiTests(unittest.TestCase):
         found = self.client.get(f"/api/trips?start_point={a}&end_point={b}").json()["trips"]
         self.assertTrue(any(t["id"] == trip_id for t in found))
 
+    def test_route_alerts_create_and_notify_on_trip_match(self) -> None:
+        """Подписка на маршрут при пустом поиске + уведомление при создании поездки."""
+        self.client.post("/api/register", json={"name": "Пассажир", "role": "passenger"})
+
+        # Создать подписку на маршрут
+        sd, ed, sp_id, ep_id, sp2_id, ep2_id = self._stops_pair_in_two_districts()
+        r = self.client.post(
+            "/api/alerts",
+            json={
+                "from_point_id": sp_id,
+                "to_point_id": ep_id,
+                "desired_date": "2026-07-01",
+            },
+        )
+        self.assertEqual(r.status_code, 201, r.text)
+        alert_id = r.json()["id"]
+        self.assertIsInstance(alert_id, int)
+
+        # Получить список подписок
+        r = self.client.get("/api/alerts")
+        self.assertEqual(r.status_code, 200)
+        alerts = r.json()["alerts"]
+        self.assertEqual(len(alerts), 1)
+        self.assertEqual(alerts[0]["id"], alert_id)
+
+        # Водитель создаёт поездку по маршруту подписки
+        self.settings.dev_user_id = 900002
+        self.client.post(
+            "/api/register",
+            json={
+                "name": "Водитель",
+                "role": "driver",
+                "dl_series_number": "9916АВ111111",
+                "dl_valid_until": "2030-01-01",
+            },
+        )
+        self._approve_driver_by_id(900002)
+
+        r = self.client.post(
+            "/api/trips",
+            json={
+                "start_point_id": sp_id,
+                "end_point_id": ep_id,
+                "trip_date": "2026-07-01",
+                "departure_time": "10:00",
+                "price_rub": 150,
+                "seats_total": 3,
+            },
+        )
+        self.assertEqual(r.status_code, 201, r.text)
+        trip_id = r.json()["id"]
+
+        # Проверяем, что подписка была обработана (статус -> notified)
+        with self.app.state.db.transaction() as conn:
+            alert = conn.execute("SELECT status FROM route_alerts WHERE id = ?", (alert_id,)).fetchone()
+        self.assertEqual(alert["status"], "notified")
+
 
 if __name__ == "__main__":
     unittest.main()

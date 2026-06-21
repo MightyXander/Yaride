@@ -9,8 +9,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from app.cache import TRIPS_SEARCH_TTL_S, cache_get, cache_set, invalidate_trip_search_cache
 from app.repo import Repo
 from webapp_api.auth import TelegramAuthUser
+from webapp_api.bot_notify import BotNotifier
 from webapp_api.config import WebAppSettings
-from webapp_api.deps import get_auth_user, get_repo, get_settings
+from webapp_api.deps import get_auth_user, get_notifier, get_repo, get_settings
 from webapp_api.schemas import CreateTripRequest
 from webapp_api.serializers import trip_card_to_dict
 
@@ -119,10 +120,12 @@ def trip_details(trip_id: int, repo: Repo = Depends(get_repo)) -> dict:
 
 
 @router.post("", status_code=201)
-def create_trip(
+async def create_trip(
     body: CreateTripRequest,
     auth: TelegramAuthUser = Depends(get_auth_user),
     repo: Repo = Depends(get_repo),
+    notifier: BotNotifier = Depends(get_notifier),
+    settings: WebAppSettings = Depends(get_settings),
 ) -> dict:
     """Создание поездки водителем (проверки роли/ВУ/времени — на стороне repo)."""
     try:
@@ -141,6 +144,12 @@ def create_trip(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     _enrich_with_intermediate_stops(repo, trip_id, body.start_point_id, body.end_point_id)
     invalidate_trip_search_cache()
+
+    # Матчинг подписок на маршрут: уведомляем пассажиров о новой поездке
+    await _notify_route_alerts(
+        repo, notifier, settings, trip_id, body.start_point_id, body.end_point_id, body.trip_date, body.departure_time
+    )
+
     return {"id": trip_id}
 
 
@@ -182,4 +191,36 @@ def _enrich_with_intermediate_stops(
             repo.trips.disable_intermediate_pickup(trip_id)
         except Exception:
             pass
+
+
+async def _notify_route_alerts(
+    repo: Repo,
+    notifier: BotNotifier,
+    settings: WebAppSettings,
+    trip_id: int,
+    start_point_id: int,
+    end_point_id: int,
+    trip_date: str,
+    departure_time: str,
+) -> None:
+    """Матчинг подписок на маршрут: уведомляем пассажиров о новой поездке. Soft fail."""
+    try:
+        matching_alerts = repo.alerts.find_matching_alerts(start_point_id, end_point_id, trip_date)
+        miniapp_url = getattr(settings, "miniapp_url", None)
+        for alert in matching_alerts:
+            try:
+                await notifier.route_alert_matched(
+                    passenger_tg_user_id=int(alert["passenger_tg_user_id"]),
+                    trip_id=trip_id,
+                    from_title=str(alert["from_title"]),
+                    to_title=str(alert["to_title"]),
+                    trip_date=trip_date,
+                    departure_time=departure_time,
+                    miniapp_url=miniapp_url,
+                )
+                repo.alerts.mark_as_notified(int(alert["id"]))
+            except Exception:
+                logger.warning("Failed to notify alert %s", alert["id"], exc_info=True)
+    except Exception:
+        logger.warning("route_alerts matching failed for trip %s", trip_id, exc_info=True)
 
