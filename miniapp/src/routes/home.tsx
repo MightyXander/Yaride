@@ -209,15 +209,20 @@ function Home() {
           onClick={() => {
             if (heroCta.to === "/create") clearCreateWizardDraft();
           }}
-          className="block relative z-0 overflow-hidden rounded-3xl brand-gradient border border-brand/20 p-5 press-strong"
+          className="block relative z-0 overflow-hidden rounded-3xl brand-gradient border border-brand/20 p-5 press-strong hero-glow"
         >
-          <div className="text-[11px] font-bold tracking-[0.18em] uppercase opacity-70">
+          {heroCta.to === "/create" ? (
+            <ArtCreate className="pointer-events-none absolute -right-4 -bottom-4 size-44 text-black/15" />
+          ) : (
+            <ArtSearch className="pointer-events-none absolute -right-4 -bottom-4 size-44 text-black/15" />
+          )}
+          <div className="relative text-[11px] font-bold tracking-[0.18em] uppercase opacity-70">
             {activeDriver ? "Поехали" : "Куда сегодня"}
           </div>
-          <h2 className="mt-2 text-[30px] leading-[1.05] font-extrabold tracking-tight max-w-[80%]">
+          <h2 className="relative mt-2 text-[30px] leading-[1.05] font-extrabold tracking-tight max-w-[80%]">
             {activeDriver ? "Возьмите\nпопутчиков" : "Найдите\nпопутчика"}.
           </h2>
-          <div className="mt-5 inline-flex items-center gap-2 h-11 px-4 rounded-full bg-[#18170f] text-white text-[14px] font-semibold">
+          <div className="relative mt-5 inline-flex items-center gap-2 h-11 px-4 rounded-full bg-[#18170f] text-white text-[14px] font-semibold">
             <Sparkles className="size-4" />
             {heroCta.label}
           </div>
