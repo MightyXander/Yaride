@@ -296,7 +296,35 @@ class PostgresDatabase:
         if from_v == 12 and to_v == 13:
             self._pg_migrate_v12_to_v13(conn)
             return
+        if from_v == 13 and to_v == 14:
+            self._pg_migrate_v13_to_v14(conn)
+            return
         raise RuntimeError(f"No PostgreSQL migration defined from v{from_v} to v{to_v}")
+
+    def _pg_migrate_v13_to_v14(self, conn: Any) -> None:
+        """Подписки на маршрут: уведомления при появлении поездок на пустых результатах поиска."""
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS route_alerts (
+                id SERIAL PRIMARY KEY,
+                passenger_id INTEGER NOT NULL REFERENCES users(id),
+                from_point_id INTEGER NOT NULL REFERENCES route_points(id),
+                to_point_id INTEGER NOT NULL REFERENCES route_points(id),
+                desired_date TEXT NOT NULL,
+                desired_time TEXT,
+                status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'notified', 'cancelled')),
+                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_route_alerts_passenger ON route_alerts(passenger_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_route_alerts_route "
+            "ON route_alerts(from_point_id, to_point_id, desired_date)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_route_alerts_status ON route_alerts(status)"
+        )
 
     def _pg_migrate_v12_to_v13(self, conn: Any) -> None:
         """Продуктовая аналитика: таблица событий воронки (поиск/бронь/отмена)."""
